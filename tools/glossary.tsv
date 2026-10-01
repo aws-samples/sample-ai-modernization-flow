@@ -1,0 +1,89 @@
+# Terminology dictionary for ja -> en generation. Keeps translations stable across regenerations.
+# Columns: ja <TAB> en <TAB> note
+#
+# --- Do NOT translate: shared anchors that must be identical in both trees ---
+CP-N	CP-N	common practice ID (method layer). Never translate or renumber
+DP-N	DP-N	domain practice ID (Playbook layer). Never translate or renumber
+HOLD-N	HOLD-N	Tier 2 stop trigger ID. Never translate or renumber
+LL-N	LL-N	project-local lessons-learned ID
+ADR-N	ADR-N	architecture decision record ID
+Tier	Tier	Tier 0 / Tier 1 / Tier 2. Keep as-is
+Phase	Phase	Phase 1-4. Keep as-is
+Step	Step	Keep as-is
+Mode A / Mode B / Mode C	Mode A / Mode B / Mode C	baseline capture modes. Keep as-is. Always carry the gloss below
+モードA（旧環境で実測）	Mode A (measure on the old environment)	gloss required at every mention
+モードB（コード読解で定義）	Mode B (define by reading the code)	gloss required at every mention
+モードC（既存テストを流用）	Mode C (reuse the existing tests)	gloss required at every mention
+Method	Method	upper layer name. Keep capitalized
+Playbook	Playbook	middle layer name. Keep capitalized
+Harness	Harness	lower layer name. Keep capitalized
+ATX	ATX	AWS Transform custom
+MT	MT	Managed Transformation
+TD	TD	Transformation Definition
+#
+# --- Fixed translations ---
+作業計画	work plan	also the filename work-plan.md (FADR-5)
+対象ソース	source tree	the read-only original being migrated (FADR-5). Prose role name
+移行先	migration target	
+移行元	migration source	
+移行先	migration target	
+実装ツリー	modernized tree	the ../<product>-modernized repository (FADR-5). Prose role name
+検証ゲート	verification gate	verify.sh
+成功基準テーブル	success-criteria table	
+期待リスト	expectation list	EXPECTED_ARTIFACTS in verify.sh
+観測テスト	observation test	
+仮説ログ	hypothesis log	
+因果の実証	demonstrated causality	CP-8
+真因	root cause	
+根本原因	root cause	
+棚卸し	inventory review	LL/CP/DP inventory review
+知見	knowledge	知見集 = knowledge collection
+実行規律	execution discipline	
+規律	discipline	
+記録義務	recording obligation	
+判断材料	judgment material	
+完了基準	completion criteria	
+自律実行ゾーン	Autonomous Execution Zone	Tier 0
+非同期レビューゾーン	Asynchronous Review Zone	Tier 1
+停止確認ゾーン	Stop-and-Confirm Zone	Tier 2 = HOLD
+軽量停止プロトコル	lightweight stop protocol	
+除外フロー	exclusion flow	HOLD-1
+裏取り	corroborate	"corroborate against primary sources" / "verify against the real code"
+一次情報	primary source	
+振る舞い	behavior	
+段階的	staged	staged build plan
+差分	diff	
+手戻り	rework	
+成果物	deliverable	artifact when referring to build output
+分析観点	analysis viewpoint	
+観点	viewpoint	
+環境差異	environment difference	environment-diff-table.md
+前提デーモン	prerequisite daemon	
+サイレント障害	silent failure	no exception, no error log, the feature is simply gone. Defined in docs/concepts.md
+破壊的変更	breaking change	
+採番	numbering	
+連番	sequential numbering	
+雛形	scaffolding	template when referring to a *.template file
+設置	install	install.sh copies files into the workspace
+利用者	user	
+案件	project	
+実例	Real-world Example	section heading
+アンチパターン	Anti-patterns	section heading
+チェック方法	How to Check	section heading
+目的	Purpose	section heading
+ルール	Rule	section heading
+サマリ	Summary	section heading
+このドキュメントについて	About This Document	section heading
+記録リポジトリ	records repository	the <product>-migration-<date> git repository (FADR-5). Prose role name
+移行元	migration source	use when contrasting source/target of the migration itself
+移行対応台帳	adaptation ledger	ledger of the sites that must be touched by the migration, with a disposition per entry (CP-11)
+期待リスト	expected list	EXPECTED_ARTIFACTS in verify.sh (CP-7). Do not call it a "denominator" (FADR-6)
+網羅の基準	coverage baseline	an independently countable list of what must be accounted for
+採用する（観点を）	select (a perspective)	to include a perspective from the perspective table in the adaptation ledger's coverage baseline
+採用しない（観点を）	not select (a perspective)	to exclude a perspective; the row stays in the perspective table but is not opened in the ledger
+網羅の基準の定義	coverage baseline definition	用する（観点を）	select (a perspective)	to include a perspective from the perspective table in the adaptation ledger's coverage baseline
+which perspectives the adaptation ledger counts, and why (CP-11). The POPULATION-DEFINED marker keeps its English ID
+母集団	population	statistics term only. This flow does no random sampling, so it should not appear
+分析時点とのコード差	drift since the analysis	the gap between the commit the analysis saw and the current HEAD
+進め方	approach	the 0a-0 choice: run the analysis / use results that already exist / use existing results for some repositories
+未対応件数	unaddressed count	the metric to drive to zero in the adaptation ledger (CP-11)

@@ -1,0 +1,101 @@
+# Migration Project — プロジェクト固有情報
+
+<!-- install.sh が生成。行動規律は migration-core.md（共通・編集しない）、
+     本ファイルはプロジェクト固有情報のみ。
+
+     ★ このファイルは人が手で全部埋める必要はない。作業開始時にエージェントが
+       「起動インタビュー」を行い、対象ソースを走査して埋められる項目を埋め、
+       埋まらない項目だけを1回まとめて質問する（migration-core.md 参照）。
+
+     ★ 記入値には必ず出所マーカーを付ける:
+         ⟨confirmed⟩ = 利用者が確定した値
+         ⟨inferred⟩  = AIが対象ソースから推定した値（仮説。CP-3 の対象）
+       ⟨inferred⟩ のままの値を ADR や work-plan の前提に使ってはならない。
+       必須入力は 0a-3 の前に、導出情報は work-plan 確定までに確定させる（`./verify.sh project` が検査する）。 -->
+
+## 必須入力（人しか知り得ない情報）
+
+<!-- 起動インタビューで最初に確認する。**Phase 0a の開始に必要なのは上2つだけ**である。
+     未記入の項目は ⟨inferred⟩ で始まる。**利用者が答えた項目だけを ⟨confirmed⟩ にする**
+     （「未定」も回答である）。 -->
+
+- **対象ソースのルート:** <PATH_TO_SOURCE_ROOT> ⟨inferred⟩
+- **Off-limits:** 下記「Off-limits」節を参照 ⟨confirmed⟩
+- **移行の動機・目的（一文）:** <WHY> ⟨inferred⟩
+  <!-- 例: 古い技術スタックで稼働している X を最新スタックで動作させたい。
+       未記入でも分析は走るが、分析観点が絞れる。 -->
+- **決まっているターゲット制約:** <TARGET_CONSTRAINTS / 未定> ⟨inferred⟩
+  <!-- 例: Amazon Linux 2023 (x86_64) で動かす必要がある / OS は不問。
+       **移行先の技術スタックは未定でよい。Phase 0b で分析結果を見て決める。** -->
+- **作業ホスト:** <ローカル / SSH: ssh \<host\> 等> ⟨inferred⟩
+- **リモートリポジトリ:** <git remote（未設定なら「未設定」と明記）> ⟨inferred⟩
+- **アセスメントのみで終えるか:** <yes / no> ⟨inferred⟩
+  <!-- yes = 分析結果または移行方針の判断材料までを成果物とする。Phase 0a 完了と Phase 0b 完了の
+       両方で停止して確認する。
+       no  = 移行まで進む前提。**Phase 0a 完了の停止を畳み、0b へ直行する**
+       （0a→0b の間に利用者が判断すべきことは無い。対象は 0a-2 で確定済み）。
+       不明なら yes 相当（安全側）として両方で停止する。 -->
+
+## 導出情報（エージェントが記入する）
+
+<!-- 対象ソースを読めば分かる情報。起動インタビューで AI が埋め、出所マーカーを付ける。
+     Phase 0a の分析結果で確定したら ⟨inferred⟩ → ⟨confirmed⟩ に更新する。 -->
+
+- **移行対象:** <PRODUCT_NAME> ⟨inferred⟩
+- **リポジトリ構成:** <単一 / 複数（N個）> ⟨inferred⟩
+  <!-- 詳細は 00-analysis/repository-inventory.md（Phase 0a-1 で作成） -->
+- **現行スタック:** <言語・版・フレームワーク・ランタイム> ⟨inferred⟩
+- **ビルドシステム:** <maven / gradle / npm / make / cmake 等> ⟨inferred⟩
+- **テスト資産:** <所在・件数・実行方法 / なし> ⟨inferred⟩
+  <!-- baseline モードC（既存テストを流用）の判断材料（Phase 1-2） -->
+- **移行先スタック:** <未定 — Phase 0b の ADR で決定>
+
+## パス
+
+- **記録リポジトリ（本プロジェクト）:** <MIGRATION_PROJECT_DIR>/
+- **実装ツリー:** <MODERNIZED_DIR>/（記録リポジトリと同列の独立 git リポジトリ。
+  Phase 3 Step 1 で `setup-modernized.sh` により作成 — skills/migration-tree-setup 参照）
+  <!-- 複数リポジトリ構成の場合はリポジトリごとに1本作る。
+       verify.sh の MODERNIZED_TREES に全て列挙する -->
+- **テスト実行:** `<MIGRATION_PROJECT_DIR>/` 直下で `./verify.sh`
+- **Harness version:** <HARNESS_VERSION>  <!-- install.sh が自動記入。設置元のフレームワーク版 -->
+
+## ATX 実行環境（分析を実行する場合）
+
+- **ATX 実行環境:** リージョン <REGION> / 認証方式 <SSO|ロール|その他>  <!-- キーの値は書かない（Phase 0a-2c） -->
+
+## 既存の ATX 分析結果（あれば）
+
+<!-- 分析が別途実施済みの場合はここにパスを書く。エージェントは実行せず取り込む（Phase 0a-2b）。
+     取り込みでも**リポジトリ棚卸しはスキップしない**。分析時点とのコード差（分析時点のSHAと現在のHEADの差）を
+     検証し、来歴を 00-analysis/analysis-runs.md に記録する。 -->
+
+- **分析結果のパス:** <PATH_TO_EXISTING_ATX_RESULTS / なし>
+- **分析実施日・実施者:** <YYYY-MM-DD / 不明>
+- **分析時点のコミットSHA:** <sha / 不明（→「分析時点とのコード差は不明」として扱う）>
+  <!-- ATX の出力には含まれないため、提供元に確認する。不明なら Phase 2 の裏取りを強化する -->
+
+## Off-limits（変更禁止）
+
+- <PATH_TO_SOURCE_ROOT>（対象ソース — **内容は変更しない**。作業は実装ツリー側で行う）
+- **許可される git 操作は次の3つのみ**: `git init` / 初期コミット / `.gitignore` 追加
+  （ATX が git 管理を要求するため）
+  - 禁止: remote 追加 / push / reset / rebase / ブランチ削除 / force 系
+  - 対象ソースが git の場合: upstream の保護ブランチに push/commit しない
+- **ATX 由来の書き込みは例外**（回避不可のツール仕様）: `.gitignore` への追記、
+  `atx-result-staging-<id>` ブランチの作成、`git add .` とコミット。
+  だからこそ ATX 実行の前後でブランチ・HEAD の一致を確認する（Phase 0a-3）
+<!-- 追加の変更禁止ファイル/ディレクトリがあれば記載 -->
+
+## プロジェクト固有の参照ドキュメント
+
+| ドキュメント | 用途 |
+|------------|------|
+| `<MIGRATION_PROJECT_DIR>/00-analysis/analysis-procedure.md` | Phase 0a-2 の詳細手順 |
+| `<MIGRATION_PROJECT_DIR>/00-analysis/repository-inventory.md` | 分析対象リポジトリの棚卸し |
+| `<MIGRATION_PROJECT_DIR>/00-analysis/analysis-runs.md` | 分析実行の台帳（進行状態はここだけに記録する） |
+| `<MIGRATION_PROJECT_DIR>/01-plan/work-plan.md` | 実装手順・検証方法・成功基準 |
+| `<MIGRATION_PROJECT_DIR>/01-plan/adaptation-ledger.md` | 移行対応台帳（未対応件数をゼロにする） |
+| `<MIGRATION_PROJECT_DIR>/docs/knowledge/practices-common.md` | 共通プラクティス（CP-N。**Summary から読む**） |
+| `<MIGRATION_PROJECT_DIR>/docs/knowledge/practices.md` | ドメインプラクティス（DP-N。**Summary から読む**） |
+| `<MIGRATION_PROJECT_DIR>/docs/reference/` | OS間差異等の事前提供資料 |

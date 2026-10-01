@@ -1,0 +1,93 @@
+# ATX transform-config template — CCA (Comprehensive Codebase Analysis)
+# Playbook: dotnetfw-to-modern-dotnet
+#
+# install.sh places this at 00-analysis/transform-config-cca-template.yaml.
+# In Phase 0a-4, copy it per repository to 00-analysis/<repo-id>/transform-config-cca.yaml and
+# fill in <PLACEHOLDER> values before use.
+#
+# Always run ATX from the "records repository root" (codeRepositoryPath is relative to it):
+#   cd <MIGRATION_PROJECT_DIR>
+#   atx custom def exec -g file://00-analysis/<repo-id>/transform-config-cca.yaml -x -t \
+#     > 00-analysis/<repo-id>/cca-run.log 2>&1
+#
+# Before running, always confirm the path exists and record the result as a comment (CP-12: do not
+# take the result of a filesystem query at face value):
+#   realpath <CODE_REPOSITORY_PATH>
+#
+# ⚠️ additionalPlanContext must be within 4096 bytes (ATX limit). **Measure after filling in the
+#   placeholders.** The template passes as-is, but `<PER_PROJECT_LINES>` and similar are longer as
+#   real values, so **filling them in can exceed the limit**.
+#     Template (empty):                                              2,856 bytes
+#     Measured with the public sample (AWS's Bob's Used Bookstore):  3,934 bytes (162 bytes of headroom)
+#   → This is the headroom at a 5-project scale. **When there are many projects, compress
+#     REPOSITORY STRUCTURE to one line per project** (drop the role explanations and keep only
+#     TFM / project format / NuGet mechanism; CCA itself outputs the details).
+#   How to measure:
+#     python3 -c "
+#     import yaml
+#     c = yaml.safe_load(open('00-analysis/<repo-id>/transform-config-cca.yaml'))['additionalPlanContext']
+#     print(len(c.encode()), 'bytes')"
+#
+# ⚠️ Whether to specify buildCommand
+#   When the migration source is .NET Framework and the work host is macOS / Linux, building the
+#   current code with MSBuild is fundamentally impossible. **Passing a build command that fails
+#   needlessly impedes the analysis**, so in that case intentionally omit buildCommand and rely on
+#   source-inspection-based analysis.
+#   Note this constraint in additionalPlanContext as well so it is conveyed to the agent (see the
+#   CONSTRAINTS section below).
+#   → For the same reason, "toolchain warnings from the migration source" cannot be obtained. Note
+#     in the work-plan that one of the ledger supply sources is unavailable
+#     (see analysis-appendix.md "Analysis Inputs").
+
+codeRepositoryPath: <CODE_REPOSITORY_PATH>          # relative path from the records repository
+transformationName: AWS/comprehensive-codebase-analysis
+
+# ⚠️ The migration target stack is decided as an ADR in Phase 0b. **Do not specify a target version
+#   here.** Doing so biases the analysis toward that assumption and skips the question of whether
+#   that version is appropriate at the time of work (DP-1 failure pattern).
+#   Instead, request an "inventory of the current stack" and an "enumeration of viable migration
+#   target candidates".
+additionalPlanContext: |
+  This repository is <ONE_LINE_DESCRIPTION>, targeting .NET Framework <VERSION>.
+
+  MIGRATION GOAL (context for analysis only; do not perform the migration):
+  Move off .NET Framework to a modern cross-platform .NET so it can run on <TARGET_OS>.
+  The target .NET version and runtime platform are NOT decided. Do not assume a target
+  version and do not present any single version as settled.
+
+  BECAUSE THE TARGET IS UNDECIDED, prioritize these outputs:
+  1. CURRENT stack inventory: per-project target framework, project file format (SDK-style vs
+     legacy), NuGet mechanism (packages.config vs PackageReference, including mixed states),
+     and every dependency with its version.
+  2. Every Windows-only / .NET Framework-only dependency that BLOCKS running on Linux. For
+     each: file path and line, why it blocks, replacement options on modern .NET, and
+     SEPARATELY whether it is DECLARED versus actually USED at runtime -- cite the call sites
+     that prove usage, or state that none were found. Do not infer usage from declaration.
+     Cover at least: System.Web, HttpContext.Current, ASP.NET MVC 5 (System.Web.Mvc), OWIN
+     self-host and Microsoft.Owin.* middleware, Global.asax and App_Start, Web.config plus
+     config transforms and ConfigurationManager, System.Drawing/GDI+, Entity Framework 6,
+     ASP.NET membership and Windows authentication, System.Web.Optimization bundling, Razor
+     .cshtml differences, IIS hosting assumptions, registry access, Windows-only native
+     dependencies, PowerShell deployment scripts, and Windows container base images in
+     Dockerfile / infrastructure-as-code.
+  3. VIABLE migration target candidates (specific modern .NET versions). For each: the
+     compatibility chain it forces (which dependencies must change, to which versions) and
+     its support stage and end-of-support date. Do not rank by "LTS" alone -- a version can
+     be LTS and already in maintenance.
+  4. Where behaviour may change SILENTLY (build succeeds, no exception, wrong or empty
+     result). Rank these ABOVE items that fail loudly at build time.
+  5. Risk ranking and effort per component. For every number you report, state the counting
+     rule you used (for example whether partial views and layouts are counted).
+
+  REPOSITORY STRUCTURE (verified by manual inspection; confirm and correct):
+  <PER_PROJECT_LINES>
+
+  CONSTRAINTS AFFECTING THE ANALYSIS:
+  - <TEST_ASSET_STATUS> <RUNNING_INSTANCE_STATUS>
+    State explicitly which behaviours can only be verified by reading code, and where the
+    risk of silent behavioural change is highest.
+  - External integrations: <EXTERNAL_SERVICES>. Note any configuration switch selecting
+    between local and cloud implementations; a defect may surface in only one mode.
+  - <BUILD_CONSTRAINT>
+  - Report file paths and line numbers for every claim. A claim without a location cannot be
+    verified and will be treated as a hypothesis.

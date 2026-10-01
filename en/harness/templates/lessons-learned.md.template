@@ -1,0 +1,71 @@
+# Lessons Learned: <PRODUCT_NAME> Migration
+
+## About This Document
+
+### Purpose
+This document records **technical lessons specific to this project migrating <PRODUCT_NAME>** in `LL-N` format.
+
+- Common knowledge (domain-independent) is recorded in `docs/knowledge/practices-common.md`, and domain knowledge (usable by other projects in the same domain) is recorded in `docs/knowledge/practices.md` in `DP-N` format.
+- Design decisions are recorded in `docs/decisions/decisions.md` in `ADR-N` format.
+
+### Rules for Adding Entries
+1. Insert new entries **immediately before** the `ENTRIES END` marker (a single HTML comment line at the end of this file; do not move it).
+2. **The number is mandatory** (`LL-N`, where `N` is the current maximum value + 1).
+   **Never create an unnumbered `## LL:`.** Without a number an entry can be neither referenced
+   nor taken stock of, and the numbering has actually collapsed in practice (in one
+   migration, seven unnumbered entries followed `LL-1`). **Gaps are preserved and never reused.**
+3. Each entry must use the **`## LL-N: <Title>` format (H2)** and include at minimum:
+   (`./verify.sh knowledge` counts entries by `^## LL-`; writing them as H3 makes them invisible to the volume discipline)
+   - **Occurred** — Which Phase / Step / subtask it was discovered in
+   - **Problem** or **Summary** — What happened
+   - **Fix** — How it was resolved
+   - **Lesson** — What can be applied going forward
+   - Optionally, items such as "Files Modified" or "Details" (references to worklog entries or investigation notes) may be added
+4. Cross-reference related `DP-N` (playbook) or `ADR-N` (decisions) entries in the body text where applicable.
+5. Changes to this file are version-controlled with git, and the reason for the change should be stated in the commit message.
+
+### Promotion Discipline (LL → DP → the framework itself)
+
+Knowledge is promoted in three stages. **If you hit the same lesson again on another project, it is
+no longer project-specific.**
+
+| Stage | Location | Condition for promotion |
+|-------|----------|-------------------------|
+| `LL-N` | This file (project-specific) | First occurrence. A lesson learned on this project |
+| `DP-<project>-N` | `docs/knowledge/practices.md` | Once you judge it useful for other projects in the same domain |
+| `DP-N` (unprefixed) | The Playbook in the framework itself | Assigned by the framework when the project's knowledge is fed back on completion |
+
+**A project must never assign an unprefixed `DP-N` / `CP-N`**
+(separation of numbering authority. See "Numbering Authority" in
+`docs/knowledge/practices-common.md`).
+
+### Quantitative Discipline
+
+Mechanically checked by `./verify.sh knowledge` (defaults: 15 entries per file / 80 lines per entry).
+If a limit is exceeded, consider consolidating or deleting. If you decide not to consolidate, record
+it at the top of this file:
+`<!-- KNOWLEDGE-REVIEWED: YYYY-MM-DD (N entries, consolidation deferred: <reason>) -->`
+
+---
+
+## References to Design Decisions (ADR)
+
+<!-- Design decisions such as exclusion judgments are recorded in docs/decisions/decisions.md -->
+<!-- Example: ADR-1: <Title> -->
+
+---
+
+## Working Knowledge
+
+<!-- Example entry:
+
+## LL-1: <Title>
+
+- **Occurred**: <When / what you were doing>
+- **Problem**: <What broke / was missed>
+- **Fix**: <How it was fixed>
+- **Lesson**: <What to do differently next time>
+
+-->
+
+<!-- ENTRIES END -->

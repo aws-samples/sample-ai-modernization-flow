@@ -1,0 +1,92 @@
+# Session Context
+
+<!-- 
+このファイルはAIエージェントがセッション間で状態を引き継ぐために使用する。
+各セッション終了時に更新し、次回セッション開始時に読み込む。
+-->
+
+## Last Checkpoint
+
+- **Date:** YYYY-MM-DD HH:MM
+- **Git ref:** <migration_commit> / modernized=<modernized_commit>
+- **Phase:** Phase X — <phase_name>
+- **Stage:** Implementation / Verification / Debugging
+
+## リポジトリ同期状態（セッション終了チェックリストで更新）
+
+<!-- コア規律「セッション終了チェックリスト」（skills/migration-session）の実行結果。未pushを放置しない -->
+| リポジトリ | 最新コミット | 未コミット変更 | リモート | push状態 |
+|-----------|-------------|--------------|---------|---------|
+| migration（本プロジェクト） | <sha> | なし / あり(<内容>) | <remote or 未設定> | ✅ pushed / ⚠️ 未push |
+| 実装ツリー | <sha> | なし / あり(<内容>) | <remote or 未設定> | ✅ pushed / ⚠️ 未push |
+
+
+## In-progress Investigation / Working-tree State
+
+<!-- **最初の変更の前に**、そのターンの宣言を1行書く（skills/migration-troubleshooting）。
+     `This turn (...)` は機械照合される共有アンカーであり、日英で翻訳しない。
+     完了時は**宣言行を worklog へ写してから**消す（写さないと恒久記録に残らない）。
+     未コミット変更があるのにこの節が空＝規律違反。 -->
+- **This turn (<T_prompt>):** <このターンで何をやろうとしているのか（着手前に書く）>
+- **Working-tree ledger（未コミット変更の分類）:**
+  | File | diagnostic(revert) / candidate-fix(verify) | note |
+  |------|--------------------------------------------|------|
+  | <path> | <分類> | <備考> |
+
+
+## 実装ツリー 起点情報
+
+<!-- Phase 3 Step 1 で setup-modernized.sh 実行後に記録（再現性のため） -->
+- **移行元 source:** <path>（git / 非git）
+- **起点 base-ref:** <tag or SHA>
+- **modernize-base SHA:** <sha>
+- **modernize ブランチ:** modernize/<target-os>-<arch>
+- **差分確認:** `(cd ../<PRODUCT>-modernized && git diff modernize-base..HEAD)`
+
+## Current Status
+
+<!-- 各Plan-IDの進捗をチェックリストで管理 -->
+- ✅ <Plan-ID>: <完了した作業の要約>
+- 🔄 <Plan-ID>: <進行中の作業> ← **CURRENT**
+- ⏸️ <Plan-ID>: <未着手>
+
+## Blockers
+
+- なし
+<!-- または: <blocker_description> -->
+
+## Next Actions
+
+1. <具体的な次のアクション: ファイル名 + 行番号 + やること>
+2. <その次>
+3. <その次>
+
+## Accumulated Learnings (This Session)
+
+<!-- このセッションで得られた知見。汎用的なものは practices.md に追記する -->
+- <learning_1>
+- <learning_2>
+
+## Decision Queue
+
+<!-- Tier 2（HOLD・停止確認ゾーン）で提示済み・ユーザー判断待ちのADRドラフト。判断が下りたら decisions.md に正式記録して行を消す -->
+| # | 判断事項 | ADRドラフト提示日 | 状態 | ブロックしている作業 |
+|---|---------|-----------------|------|-------------------|
+| <N> | <what> | YYYY-MM-DD | ⏳ 判断待ち / ✅ 承認→ADR-N | <なし / Step X> |
+
+## Verification Queue
+
+<!-- 修正したが未検証の項目 -->
+| Plan-ID | 修正内容 | 観測方法 | 結果 |
+|---------|---------|---------|------|
+| <ID> | <what> | <how_to_verify> | ⏳ 未検証 |
+
+---
+
+## Status Icons
+
+- ✅ = 完了（テスト確認済み）
+- 🔄 = 進行中
+- ⏸️ = 未着手
+- 🚫 = ブロック中
+- ⚠️ = 要注意（部分的に動作するが未確認項目あり）

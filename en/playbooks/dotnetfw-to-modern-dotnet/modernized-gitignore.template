@@ -1,0 +1,53 @@
+# --- [port] build artifacts: .NET / MSBuild (build outputs for this Playbook) ---
+# Write both upper and lower case. **The migration target Linux is case-sensitive**,
+# so "bin/" alone would miss "Bin/" (whereas Windows/macOS treat them as the same, hiding the gap).
+[Bb]in/
+[Oo]bj/
+[Dd]ebug/
+[Rr]elease/
+[Ll]og/
+[Ll]ogs/
+
+# NuGet
+packages/
+*.nupkg
+*.snupkg
+.nuget/
+
+# Publish artifacts
+publish/
+[Pp]ublish[Oo]utput/
+*.publishsettings
+
+# User / IDE specific
+*.user
+*.suo
+*.userosscache
+*.sln.docstates
+.vs/
+.vscode/
+*.DotSettings.user
+
+# Test / coverage
+[Tt]est[Rr]esult*/
+coverage*.json
+coverage*.xml
+*.coverage
+*.trx
+
+# IaC (CDK etc.)
+cdk.out/
+.cdk.staging/
+cdk.context.json
+
+# OS
+.DS_Store
+Thumbs.db
+
+# ⚠️ Do NOT ignore these (if lost during migration, the loss goes unnoticed)
+#   - Migrations/          … EF Core Migrations are source code. Ignoring them loses the
+#                            schema-change history and removes them from the expected-list check
+#   - appsettings*.json    … Configuration is not a build artifact. **Do not put secrets in it**
+#   - runtimes/            … Bundled native-dependency binaries. Normally under bin/ and therefore
+#                            ignored, but the expected list (build gate) verifies their presence
+#                            (→ verify-snippets.md §2)

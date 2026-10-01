@@ -1,0 +1,30 @@
+# <taskname> Verification Plan
+
+## Purpose
+
+<!-- Why this work is needed -->
+
+## Scope
+
+<!-- Which files/features/tools this covers -->
+
+## Work Steps
+
+### Step 1: ...
+
+### Step 2: ...
+
+### Step 3: ...
+
+## Success Criteria
+
+- [ ] ...
+- [ ] ...
+
+## Deliverables
+
+```
+03-worklog/YYYYMMDDHHmm-<taskname>/
+├── plan.md          ← this file
+└── (work artifacts)
+```

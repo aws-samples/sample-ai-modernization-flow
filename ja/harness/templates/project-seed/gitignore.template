@@ -1,0 +1,9 @@
+# 実装ツリーは同列の独立リポジトリ(../<PRODUCT>-modernized)で管理する。
+# 本プロジェクト配下には置かないが、誤配置の保険として無視する。
+*-modernized/
+.DS_Store
+
+# ターン時刻の生ログ（install.sh --turn-log。hook が毎ターン追記する）。
+# **追跡下に置いてはならない**: repo-sync ゲートは未追跡ファイルも FAIL 扱いにするため、
+# セッション中ずっとゲートが落ちる。恒久記録は turn-report.sh --worklog で worklog へ貼った表である。
+03-worklog/turn-log.tsv

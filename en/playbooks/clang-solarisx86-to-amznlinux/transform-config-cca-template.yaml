@@ -1,0 +1,77 @@
+# ATX Transform Config: Solaris→Linux porting analysis
+# additionalPlanContext must be within 4096 bytes (ATX limit).
+# Run from the root of the records repository:
+#   atx custom def exec -g file://00-analysis/<repo-id>/transform-config-cca.yaml -x -t
+# codeRepositoryPath is **relative to the root of the records repository** (keep a single base).
+# After setting it, always confirm it resolves to a real path with `realpath <value>`.
+# In <PROJECT_SPECIFIC_NOTES>, list target-specific focus points as bullets (examples: datetime
+# handling to watch closely, libraries with large major-version diffs and their main changes,
+# presence of tests/specs). If there are none, delete the section.
+
+codeRepositoryPath: <RELATIVE_PATH_TO_SOURCE>
+transformationName: AWS/comprehensive-codebase-analysis
+buildCommand: noop
+additionalPlanContext: |
+  Output language: English
+  Purpose: <SOURCE_OS>→<TARGET_OS> migration analysis. Input for the work-plan.
+
+  ## Environment
+  | Item | Source | Target |
+  |------|--------|--------|
+  | OS | <SOURCE_OS_VERSION> | <TARGET_OS_VERSION> |
+  | Arch | <SOURCE_ARCH> | <TARGET_ARCH> |
+  | CC | <SOURCE_CC> | <TARGET_CC> |
+  | OpenSSL | <SRC_OPENSSL> | <TGT_OPENSSL> |
+  | Libs | <SRC_LIBS> | <TGT_LIBS> |
+
+  ## If target undecided
+  If the target column is empty, do not assume one; enumerate target candidates with LTS/scale of breaking changes/compatibility chain. Decision is Phase 0b(ADR).
+
+  ## Analysis
+  1. OS-specific code: #ifdef __sun etc,OS-specific syscalls,compiler attrs,configure detect
+  2. 32→64bit: long/ptr deps,struct padding,sizeof deps,type stored into fixed buffers
+  3. Year 2038(time_t): all usages,int/int32_t downcasts,serialization,hardcoded dates(2037 etc),expiry,HTTP header datetimes
+  4. Library behavior changes[MOST IMPORTANT]: investigate "same API,changed behavior",not API removal
+     Steps: id libs w/major ver diff→check CHANGES→list newly added compat opts(=switch back to old behavior=breakage signal)→default-changed items→pinpoint sites
+     Report: |Library|Change|OldBehavior|NewBehavior|CompatOption|ImpactSite|
+  5. config.h macro values: verify correct on target. accept inheritance,sendfile,event mechanism,socket options
+     Report: |Macro|SourceValue|CorrectTargetValue|Basis(man)|ImpactIfWrong|
+  6. Event I/O: source model usage sites,target conversion path,edge/level-trigger check(EAGAIN loop=ET,returns once=LT)
+  7. Build compat: deprecated/removed APIs,warning→error promotion,opaque types blocking member access
+  8. Char encoding: setlocale usage,locale-dep functions,source encoding
+
+  ## OS diffs(Solaris→Linux)
+  | Key | Solaris | Linux |
+  |-----|---------|-------|
+  | Atomic | atomic.h(add_nv=new val,cas=old val) | __atomic_fetch_add=old,compare_exchange=bool |
+  | EventIO | port_*(auto-dissociate,timespec) | epoll_*(persistent,ms) |
+  | Time | gethrtime()→ns directly | clock_gettime(MONOTONIC)→timespec |
+  | Thread | thr_create(6)/join(3) | pthread_create(4)/join(2) |
+  | SHM | POSIX common,shmmax diff | same |
+  | Signal | POSIX common,SIGRTMIN range diff | same |
+  | FS | stat64(),attropen() | _FILE_OFFSET_BITS=64,getxattr() |
+  | Net | TCP_NOPUSH,SO_EXCLBIND | TCP_CORK,EAGAIN==EWOULDBLOCK |
+  | Proc | /proc=struct,RLIMIT_VMEM | /proc=text,RLIMIT_AS |
+  | Build | -lsocket -lnsl,-mt,__sun | glibc integrated,-pthread,__linux__ |
+  | Locale | eucJP/PCK | UTF-8,-finput-charset |
+  | Doors | door_*() | UDS |
+  | Contract | ctfs | cgroups v2 |
+  | kstat | kstat_*() | /proc,/sys |
+  | DTrace | dtrace | eBPF/bpftrace |
+  | RBAC | usermod -P | capabilities,SELinux |
+  | FMA | fmadm | rasdaemon |
+  | ZFS | zpool/zfs | ext4/xfs+LVM |
+  | libumem | umem_*() | jemalloc |
+  | SMF | svcadm | systemd |
+  | libc | strlcpy present | strlcpy absent(glibc<2.38),struct stat diff |
+
+  ## Output format
+  A. Architecture overview: module structure,event model,data flow
+  B. Impact site list: |#|Category|File:Line|CurrentCode|Fix|Priority|VerifyMethod|
+     Priority: P0=build-blocking,P1=runtime error,P2=warning,P3=improvement. VerifyMethod req'd
+  C. Behavior change list: library-change table+macro table
+  D. Dependency map: inter-fix deps,recommend Phase split
+  E. Risks: enumerate "builds OK,breaks at runtime" patterns
+
+  ## Project-specific
+  <PROJECT_SPECIFIC_NOTES>

@@ -1,0 +1,509 @@
+# Analysis and Planning Procedure
+
+This document defines the detailed procedure from Phase 0a (assessment: running the code analysis) through
+Phase 2 (analysis and planning). From Phase 3 (implementation) onward, follow
+`01-plan/work-plan.md`.
+
+**All you need to start is the source root path and the off-limits list.**
+Because the target stack is decided in Phase 0b, you may enter Phase 0a with it undecided.
+Everything else about the project is filled in by the agent during the startup interview
+(harness core discipline "Startup Interview" / `migration-project.md`).
+
+---
+
+## Phase 0a: Assessment — running the code analysis
+
+**You can finish at the end of this Phase** (stop point 1). The deliverable is "the analysis results
+themselves", which can be handed to another team or taken to an internal review. Whether to proceed
+with the migration is decided in Phase 0b.
+
+### 0a-0: Decide how to proceed [do this first]
+
+**If analysis results already exist, skip the steps that run the analysis entirely.** The decision comes
+first because the approach determines which steps follow.
+
+| Approach | Condition | Steps to run |
+|------|-----------|--------------|
+| **Use results that already exist** | ATX analysis results already exist (run by another team / received as an assessment deliverable / 0a already done on this project) | 0a-1 → 0a-2 → **0a-2b** → 0a-6 |
+| **Run the analysis** | No analysis results | 0a-1 → 0a-2 → 0a-3 → 0a-4 → 0a-5 → 0a-6 |
+| **Use existing results for some repositories** | Results exist for only some repositories | Use both. **Run only what is missing (never all-or-nothing)** |
+
+**When using results that already exist, do not perform `0a-3` (git preparation), `0a-4` (transform-config)
+or `0a-5` (running ATX).** Nothing is executed, so neither the git preparation nor the configuration is
+needed. Skipping this is the whole point of having the results in advance.
+
+`0a-1` (repository inventory) and `0a-2` (confirming the scope) are **never skipped, whichever approach you take.**
+Without the inventory the downstream work (Step assignment, modernized-tree creation, registration in the
+expected list) cannot proceed.
+
+### 0a-1: Repository inventory
+
+Scan under the source root and create `00-analysis/repository-inventory.md`.
+
+1. **Do not rely on the presence of `.git` alone.** Also detect build roots (`pom.xml` /
+   `build.gradle` / `package.json` / `Makefile` / `CMakeLists.txt` / `go.mod` / `*.csproj` /
+   `requirements.txt` etc.), because unmanaged code is expected (0a-3 runs `git init`).
+2. **Distinguish the repository unit from the component unit.**
+   - Separate repositories = each is a git root → the analysis unit is separate too
+   - Monorepo = multiple components in one repository → **ATX can analyse a subdirectory, but it
+     cannot run in parallel** (see 0a-5 below)
+3. Record per row: ID / path / git-managed / build system / presumed role
+   (frontend/backend/batch/shared/tooling) / rough size (files, LOC) / in or out of scope + reason.
+4. **Do not dig deep.** Leave detailed structural analysis to ATX. This step is enumeration and
+   identification only.
+
+### 0a-2: Confirm the analysis scope [stop point (light HOLD)]
+
+Present the inventory to the user and fix the analysis scope.
+
+- The default is **all detected repositories are in scope**. The user says what to drop
+- Confirmation is mandatory because the analysis cost is proportional to the repository count.
+  An ADR is not required, though
+- Keep "out of scope" in the ledger with a reason (never make an exclusion invisible)
+
+### 0a-2b: Ingest existing analysis results [only when using results that already exist]
+
+When the analysis has already been performed, **ingest rather than run it**. Do not perform `0a-3` /
+`0a-4` / `0a-5`.
+
+1. Map the results to the repositories (repo-id ↔ result directory)
+2. **Record the drift since the analysis in the ledger. Do not stop for it.**
+   - **The SHA cannot be recovered from ATX's output** (verified: ATX's artifacts contain no commit
+     information). **"The commit the analysis saw is unknown" is therefore the default state**
+   - If ATX's staging branch or its result commit still exists in the target repository, its parent is the
+     HEAD at analysis time (do not depend on it: a reset, branch deletion or GC loses it)
+   - **It is fine to proceed without knowing the commit the analysis saw.** State "unknown" in the ledger and cover it
+     by **strengthening the Phase 2 corroboration (CP-3)**. ATX results are hypotheses to begin with
+     (CP-3), and corroboration against the real code is already assumed
+   - Ask the provider if they are present and can answer immediately, but **never block waiting for it**
+   - Exception: only when the source is **known** to have changed substantially since the analysis, report
+     the size of the difference and confirm whether a re-run is needed (HOLD)
+3. Record provenance in the ledger as `source: ingested` (source path / analysis date / target SHA
+   ("unknown" when it is) / who ran it)
+4. **Run only what is missing.** Never all-or-nothing. For a repository with no results, or one missing a
+   kind of result or incomplete results, perform `0a-3` onward individually
+
+### 0a-2c: ATX preflight [only when running the analysis]
+
+Check three things: `atx --version` succeeds / AWS authentication is valid (`aws sts get-caller-identity`) /
+the region in use is one ATX supports.
+
+If any fails, read the official documentation
+<https://docs.aws.amazon.com/transform/latest/userguide/custom-get-started.html>
+to install and configure, then check again. If the user has to act, report and stop without moving on to `0a-3`.
+
+- Prefer IAM Identity Center (SSO) or temporary IAM role credentials for authentication. Long-term IAM user access keys are the last resort
+- Never have access keys pasted into the conversation, logs or records
+- On Windows, confirm that `atx` is visible on the PATH from both native PowerShell and Git Bash
+
+### 0a-3: Per-repository git preparation [only when running the analysis]
+
+**Precondition: every mandatory input in `migration-project.md` is ⟨confirmed⟩** (otherwise `./verify.sh project` FAILs).
+
+For each target repository, record the git state before the run in `00-analysis/analysis-runs.md`.
+
+| State | Procedure |
+|-------|-----------|
+| Not git-managed | `git init` + an initial commit of all files + add a `.gitignore` if needed |
+| Already git-managed | **Record the branch name and HEAD before the run** (to confirm they match afterwards) |
+
+- **The only permitted git operations are `git init` / the initial commit / adding a `.gitignore`.**
+  Adding a remote, pushing, reset, rebase, deleting branches and force operations are forbidden
+  (the source tree is off-limits)
+- ATX itself requires git management (if unmanaged it stops before any service call with
+  `must be managed by git ... Please run 'git init' and try again.`)
+- **ATX writes to the target repository** (unavoidable tool behaviour): it appends common ignore
+  patterns to `.gitignore`, creates an `atx-result-staging-<id>` branch, and performs `git add .`
+  plus a commit. That is exactly why confirming the return afterwards is mandatory
+- If a managed repository is dirty, ask the user before analysing
+
+### 0a-4: Create the transform-config [only when running the analysis]
+
+Create one configuration per repository.
+
+```
+00-analysis/<repo-id>/transform-config-cca.yaml   # Comprehensive Code Analysis
+```
+
+1. Copy the template provided by the Playbook and replace the `<PLACEHOLDER>` values
+2. **Confirm that `additionalPlanContext` opens with all three common directives. Add whichever are missing.**
+   None of them **depends on the migration domain**, so supply them here even when the Playbook's template
+   lacks them (some existing templates carry only the output language). A newly authored Playbook drops
+   them easily.
+
+   ```
+   Write all documentation in English. Keep code identifiers and file paths in original form. All diagrams MUST be mermaid not ASCII art.
+   ```
+
+   | Directive | Purpose |
+   |-----------|---------|
+   | `Write all documentation in <language>.` | **ATX outputs English when nothing is specified.** Match the installed language (`--lang`) |
+   | `Keep code identifiers and file paths in original form.` | Stop identifiers and paths being translated; once translated they can no longer be matched during corroboration against the real code (CP-3) |
+   | `All diagrams MUST be mermaid not ASCII art.` | **Prevents ASCII-art diagrams from breaking up.** With mermaid, `generate-html.sh` renders them as diagrams (verified) |
+
+   - **Write the directives in English** even when the output language is Japanese. The wording above is
+     verified to produce Japanese output
+   - **It must contain no comma.** `--configuration 'additionalPlanContext=…'` splits on commas
+   - Installed in Japanese: use `Write all documentation in Japanese.`
+     (keep all three even though English is the default, for the sake of the other two)
+3. **Write `codeRepositoryPath` as a path relative to the root of the records repository, and always
+   run `atx` from the root of the records repository.** Keep a single base
+   (e.g. `../myapp` if the source tree sits directly in the workspace, or `../myapp/frontend`
+   for part of a monorepo)
+   - After setting it, always confirm it resolves with `realpath <value>`
+   - You may also use the CLI's `-p/--code-repository-path`
+4. **If the target stack is undecided, leave the target column empty.**
+   Enable the template's "If the migration target is undecided" viewpoints (inventory the current
+   stack and enumerate viable migration targets)
+5. Confirm `additionalPlanContext` is **within 4096 bytes**
+
+### 0a-5: Run the ATX analysis [only when running the analysis]
+
+> **The AI agent runs it in the background and monitors progress by tailing the log**
+> (see the harness core discipline "long-running commands"). Do not switch to manual execution just
+> because it takes a long time (tens of minutes per run). If interactive operation is unavoidable,
+> ask the user to run it.
+
+**Ordering rules:**
+
+| Axis | Rule | Reason |
+|------|------|--------|
+| Across repositories | **Parallel** (with a cap on concurrent runs. **Default 5**) | Shortens wall-clock time; up to about 5 is practical on a many-core machine (measured). It competes with the local build load, so it is not unbounded |
+| Within a repository | **One analysis** (CCA only) | ATX runs `git checkout -b` in the target, so **parallel execution inside one git work tree is impossible**. With a single analysis per repository this is automatically satisfied |
+| Multiple components inside a monorepo | **Sequential** (they share a work tree) | To parallelise, split the work tree with `git worktree` or a clone |
+
+**When using `-x` (non-interactive), `-t` (auto-approve tools) is also required.** One without the other stalls.
+
+**The official `AWS/` Transformation Definitions cannot be downloaded with `atx custom def get`**
+(a reserved prefix). The TD itself cannot be modified, so behaviour is tuned solely through
+`additionalPlanContext` (0a-4).
+
+```bash
+# Run from the root of the records repository
+# One repository
+atx custom def exec -g file://00-analysis/<repo-id>/transform-config-cca.yaml -x -t \
+  > 00-analysis/<repo-id>/cca-run.log 2>&1
+```
+
+Update `00-analysis/analysis-runs.md` on every run (**this ledger is the source of truth for
+progress**). Make it possible to resume from the ledger and the logs even if the session is
+interrupted.
+
+**Isolate failures.** One failure must not stop the others. Keep a per-repo status in the ledger and
+re-run only what failed.
+
+#### Do not judge completion by the exit code [important]
+
+**A finished process does not mean a finished analysis.** This is measured behaviour.
+
+| Kind | How completion is judged | Why |
+|------|--------------------------|-----|
+| CCA | **The number of non-empty files**, or the presence of the terminal artifacts | **CCA creates empty scaffolding first and writes the content later.** If it is cut short, only empty files remain and the exit code can still be 0 |
+
+**Conversely, a non-zero exit can still indicate completion.** `--limit` reached fires after completion with exit 2.
+Record the exit code (it informs the decision to resume), but **never treat it alone as completion**.
+`./verify.sh assessment` also checks for the terminal artifacts.
+
+#### `--limit` and resuming
+
+- **`--limit <minutes>` is a cumulative ceiling for the conversation**, not an increment. On reaching it
+  the run stops with **exit code 2**
+- Resume with the **top-level `atx`**: `atx --conversation-id <id> -t --limit <a larger value>`, which
+  carries the cumulative total over (there is no `-x` flag). `nohup … < /dev/null` runs it headless
+- **A completed conversation cannot be resumed.** If resuming fails, it either completed or the
+  conversation is gone
+- Omit `--limit` for no ceiling
+
+#### Transient errors recover by resuming
+
+`not available in region` / `Stream idle timeout` / throttling and the like **recover by resuming the
+conversation**. Distinguish them from permanent failures and try resuming first (about two automatic
+retries is a reasonable guide). Only when it fails at the same point after resuming should the
+configuration or the target be suspected.
+
+
+#### Work to run in parallel while it executes [do not idle]
+
+**Waiting on ATX is not idle time.** In practice 25 minutes were spent idling during a CCA run.
+**Log monitoring only needs a check every few minutes; spend the gaps on other work.**
+
+Things that can proceed during the run because they do not depend on the analysis results:
+
+| Work to run in parallel | Why it does not depend on the results |
+|-------------------------|---------------------------------------|
+| Finishing the Playbook scaffold (the perspective table, the skeleton of practices.md) | It can be written from general knowledge of the source and target stacks |
+| The skeleton of the environment-difference table (list the items; fill the values later) | What needs comparing is decided without waiting for the analysis |
+| Groundwork on the baseline mode (measure / read the code / reuse existing tests — which is it likely to be) | Whether the old environment is alive and where the test assets are is already known from 0a-1 |
+| The skeleton of the `verify.sh` expected list (enumerate the kinds of build artifacts) | The build system is already known from the 0a-1 inventory |
+| Getting the records in shape (pre-writing worklog and analysis-runs.md rows) | The provenance of a run can be written before it finishes |
+
+**What does depend on the results (do not parallelize):** deciding the target version / choosing the
+adaptation ledger's coverage baseline (its perspectives) / organizing the technical debt — all of them take the
+analysis as input.
+
+**Note: proceeding without waiting for the result is not the same as stopping the run.** Stopping a
+long-running job in flight is HOLD-6 (it throws away hundreds of agent minutes of real spend and must
+not be done without the user's instruction).
+
+
+### 0a-6: Organize the results and create the entry point
+
+1. Place the result directories under `00-analysis/<repo-id>/`
+2. Convert to HTML:
+   ```bash
+   cd 00-analysis/<repo-id>
+   ../generate-html.sh ATXDocumentation ATXDocumentation_html
+   ```
+   - Requires `pandoc` (`brew install pandoc` / `sudo dnf install pandoc`) and `python3`
+   - The sidebar is generated from the actual file tree (not a fixed list, so no dead links)
+   - ``` mermaid ``` blocks are rendered as diagrams (`mermaid.min.js` is bundled locally, so it works
+     offline). **ASCII-art diagrams do not become diagrams** — requiring mermaid via the 0a-4 directive
+     is the real remedy
+3. **Generate `00-analysis/README.md`.** What was analysed / where the results are / links to the
+   per-repository HTML. Without it, what you hand over is a directory tree
+
+### Phase 0a completion conditions
+
+- [ ] every mandatory input in `migration-project.md` is ⟨confirmed⟩
+- [ ] `repository-inventory.md` exists and in/out of scope is fixed with reasons (user-confirmed)
+- [ ] CCA results exist for every target repository (or are ingested with the drift since the analysis recorded)
+- [ ] `analysis-runs.md` records the provenance, exit code and output location of every run
+- [ ] **The branch/HEAD return has been confirmed for every target repository** (recorded in the ledger)
+- [ ] The analysis results are converted to HTML and reachable from `00-analysis/README.md`
+- [ ] `03-worklog/session-context.md` and `worklog.md` are updated
+
+**Whether to stop is decided by "Assessment only" in `migration-project.md`.**
+
+| Setting | Behaviour at the end of Phase 0a |
+|---------|--------------------------------|
+| `yes` (default, and when unknown) | **Stop and confirm.** The deliverable is the analysis results themselves. The migration policy is not decided |
+| `no` | **Do not stop; go straight to 0b.** There is nothing for the user to decide between 0a and 0b (the scope was fixed in 0a-2). Confirm the completion conditions mechanically with `./verify.sh assessment`, record it in the worklog and continue |
+
+Even with `no`, **the completion conditions themselves are not skipped.** What is skipped is only the
+round trip of human confirmation.
+
+---
+
+## Phase 0b: Consolidating the assessment results
+
+**You can finish at the end of this Phase** (stop point 2). The deliverable is "material for the
+go/no-go decision".
+
+### 0b-1: Cross-repository integration
+
+Integrate the per-repository results into something readable as a system.
+Skipping this leaves you with N isolated reports.
+
+> **When there is only one target repository, item 1 below (the system-wide diagram) and `0b-2`
+> (contracts between repositories) are explicitly N/A.** There is nothing to draw them against, so they
+> would only produce empty deliverables. Record in the ledger that `repository-inventory.md` has a single
+> target as the grounds, and skip them (recorded as a decision, not skipped without a record). With two or more,
+> perform them as usual.
+
+1. **System-wide diagram**: dependencies and communication boundaries between repositories
+2. **Cross-cutting environment diff table** → `01-plan/environment-diff-table.md`
+   (differences in the execution platform, runtime, toolchain, standard library and dependent
+   libraries. For domain-specific viewpoints see `00-analysis/analysis-appendix.md`)
+3. **The migration's coverage baseline [picking the perspectives]** → the "coverage baseline definition" section of `01-plan/adaptation-ledger.md`
+   Once the target is decided in 0b-4, **pick the perspectives that apply to this target from the
+   perspective table in `00-analysis/analysis-appendix.md`** (**CP-11**). **Do not open ledger rows here**
+   (that happens in Phase 2). The purpose is to show scale and risk as go/no-go material.
+
+   **Never make a code pattern scan's hit count the coverage baseline.** Pre-empting ① (the perspectives the
+   build enumerates) with a static scan has no value, and because the counting unit differs per
+   perspective the arithmetic does not hold (measured: the count was corrected three times).
+   Select only **② the silent perspectives** and **③ the misleading ones**.
+   **Do not use an AI-extracted list of specs or rules as the coverage baseline either** (an extract's
+   errors are caught by corroboration, but what it never wrote stays missing from the coverage baseline
+   and nobody notices; CP-3).
+
+   Always state the perspectives you selected and the reason for each one you did not
+   (`./verify.sh adaptation` checks that it exists). The counts are obtained in Phase 3 by running each
+   perspective's detector
+
+### 0b-2: Inventory of contracts between repositories
+
+Enumerate APIs / events / shared DBs / shared files. The frontend-backend boundary is
+**subject to HOLD-2 (wire format, persisted format, externally published interfaces)** and has the
+highest back-out cost. Making it visible at the assessment stage is highly valuable.
+
+### 0b-3: Candidate targets and rough sizing
+
+1. From the inventory of the current stack, enumerate viable migration targets
+   (LTS, support status, compatibility chain. Make "choosing this version forces these up" explicit)
+2. A rough estimate of the work size (expected number of Steps, affected file count) and the main risks
+
+### 0b-4: Decide the migration policy [mandatory, Tier 2 = HOLD]
+
+**The target stack is decided here.** It must not be decided before seeing the analysis.
+
+- Record the candidates and the selection rationale, plus the rejected candidates and why, as an ADR
+- If a policy for feature exclusion (deprecated protocols etc.) is already visible, state the
+  direction here (individual exclusion decisions happen at implementation time as HOLD-1)
+- **User approval is required**
+
+### Phase 0b completion conditions
+
+- [ ] The system-wide diagram and the cross-cutting environment diff table exist
+      (**with a single target repository the diagram and `0b-2` are N/A**; recording the grounds in the ledger suffices)
+- [ ] **The migration's coverage baseline is fixed as a selection from the perspective table** (no ledger rows yet; the counts come in Phase 3; CP-11)
+- [ ] The contracts between repositories are inventoried
+- [ ] Candidate targets are organized with their compatibility chains, and the rough size and risks are recorded
+- [ ] **The migration policy is recorded as an ADR and approved by the user**
+- [ ] The `⟨inferred⟩` values in `migration-project.md` have been replaced with confirmed information
+      (`./verify.sh project` FAILs on any that survive after the work-plan is confirmed; for anything
+      that genuinely cannot be settled, recording
+      `<!-- INFERRED-REMAINS-OK: <field> — <reason> -->` lets it pass)
+- [ ] `03-worklog/session-context.md` and `worklog.md` are updated
+
+**If you stop here**: hand the go/no-go decision back to the user.
+
+---
+
+## Phase 1: Preparation
+
+### 1-1: Investigate the changelogs of dependent libraries
+
+Record in `00-analysis/library-changelog-review.md`:
+- Identify libraries with a major version difference (CP-1)
+- Extract behavioral changes from CHANGES/NEWS
+- **Enumerate newly added compatibility options/flags** (= a signal of a behavioral change)
+
+See: `00-analysis/analysis-appendix.md` and the Playbook material under `docs/reference/`
+
+### 1-2: Capture the baseline (the mode choice is an explicit decision)
+
+**Fix the mode first and state it in the work-plan** (details: `02-test/baseline-behavior.md`.
+Combining modes is allowed):
+- **Mode A (measure on the old environment)**: when the old environment is available. Record correct
+  behavior by observing the real system into `02-test/test-results/baseline/` (CP-5). This can only be
+  captured while the old environment is alive. Do it first
+- **Mode B (define by reading the code)**: when the old environment is unavailable. Define the expected
+  behavior from code reading in `02-test/baseline-behavior.md`. **Always state the evidence (source:line)
+  and the confidence for each item**, and note the low baseline confidence in the work-plan's risk section
+- **Mode C (reuse the existing tests)**: when existing test assets are available. Use the existing
+  unit/E2E test suite as the baseline.
+  **Count migrating the test infrastructure itself (runner, drivers, execution environment) as a
+  Step in the work-plan**
+
+**For Mode B (define by reading the code), the coverage baseline belongs in the file set of the primary source code.** Do not use an AI analysis result as the specification (what was never written stays missing from the baseline and nobody notices; CP-3). Include not only source files but also views, templates and configuration files — platform coupling concentrates there.
+
+### 1-3: Decide the scope of the non-functional requirements [mandatory, Tier 2 = HOLD]
+
+For each item below, **decide "in scope" or "out of scope" with a reason and record it as an ADR**.
+This is a scope decision (ADR-level), so **user approval is required (HOLD-7)**.
+You must not proceed into the implementation phase with an "implicitly out of scope" item.
+
+| Item | What to decide | Where it is implemented if in scope |
+|------|----------------|-------------------------------------|
+| Performance | Whether to compare response time / throughput against the baseline | `./verify.sh nonfunc` (perf) |
+| Resource leaks | Whether to run long-running tests with a leak detection tool (valgrind, profiler, etc.) | `./verify.sh nonfunc` (leak) |
+| Fault tolerance | Whether to run failure-path and restart tests | `02-test/integration/` |
+| Security | Whether to check for and fix remaining known vulnerability patterns | The in/out of scope table in the work-plan |
+
+- Items put **in scope**: register them in the work-plan's success criteria table with a
+  verification method, and enable verify.sh's nonfunc gate
+- Items put **out of scope**: keep them in the success criteria table as a row reading
+  "out of scope (see ADR-N)" (never make being out of scope invisible)
+
+### Phase 1 completion conditions
+
+- [ ] The version differences and behavioral changes of dependent libraries are recorded
+- [ ] The baseline mode is explicitly chosen, and the baseline is captured/defined
+- [ ] **In/out of scope is recorded as an ADR for every non-functional item, and user-approved**
+- [ ] `03-worklog/session-context.md` and `worklog.md` are updated
+
+---
+
+## Phase 2: Analysis and planning
+
+### 2-1: Corroborate the ATX findings against the real code
+
+1. Extract the list of "items that appear to need fixing" from the ATX analysis results
+2. For each item, **corroborate it by grepping/reading the actual source code** (CP-3)
+   ```bash
+   # Example: when ATX reported that some function must be removed
+   grep -rn "<symbol>" <source tree>/
+   # -> confirm whether it is actually used
+   ```
+3. Create the "ATX finding vs. actual code state" comparison table under `00-analysis/`
+   - Label each item "needs fixing / no problem / unconfirmed"
+4. **The more a result was ingested (0a-2b), the more valuable corroboration is.**
+   When the commit the analysis saw is unknown, corroborate every item
+
+### 2-2: Create the work-plan
+
+**Inputs (reference all of them):**
+- The ATX analysis results + the corroboration comparison table + the coverage baseline (perspectives) picked in Phase 0b
+- The **Summary table** of `practices.md` (open the body only when relevant)
+- The domain knowledge under the Playbook's `docs/reference/` and `analysis-appendix.md`
+- The Phase 0b cross-cutting integration (diagram, environment diffs, inter-repository contracts)
+
+**Procedure:**
+
+1. **Code transformation is done by the agent through direct modification**:
+   - Do not use ATX's Managed Transformation (MT) or Transformation Definition (TD) for the conversion.
+     With ATX's transformation the decision on each individual change does not come up to the user and
+     no ADR is left behind
+   - ATX is used only for the Phase 0a analysis (CCA)
+
+2. **Build a staged build plan**:
+   - Make "the minimal configuration (no external library dependencies) builds" the first goal
+   - Then enable dependent libraries/modules one at a time
+   - Finally enable all modules
+   - Define an independent verification gate (behavioral check) at each stage
+   - **With multiple repositories, Steps are assigned per repository.**
+     The migration order (backend first, or together) is itself an ADR-level decision, and the
+     compatibility window for the inter-repository contracts must be designed
+
+3. **Define a Plan-ID and a verification method for every fix** (CP-4):
+   - what to fix / what to observe to call it correct (command + expected result) / commit message format
+
+4. **Define the success criteria table**:
+   - Mandatory criteria (nothing is done until all PASS) / recommended criteria / non-functional items
+     (reflecting the 1-3 decision)
+   - **At the moment it is finalized, register every in-scope artifact into verify.sh's expected
+     list (CP-7).** Register the ones that cannot be built yet too (unregistered = nonexistent)
+   - **Open the adaptation ledger rows here (CP-11).** For the perspectives picked in Phase 0b, open
+     **one row per perspective**, with the perspective ID (`MP-N`) and `path:line` evidence.
+     **Build a detection command per perspective and save it in a re-runnable form** under, for example,
+     `00-analysis/detection/` (Phase 4 re-scans, so losing them makes the verification irreproducible).
+     **Give every detector a negative test, confirm EXIT != 0, and record it (CP-13)** — detection power
+     is unproven until you break it, and "zero findings" reads as "none exist" AND as "cannot detect".
+     The counts are obtained in Phase 3 by running the detectors. Assign a disposition to each row, and
+     give a reason for `not_required` / `replaced`
+
+5. **Reflect the applicable items of the knowledge documents.** State non-applicable items explicitly
+   as "not applicable" (with a reason)
+
+6. **Define the risks and mitigations**
+
+### 2-3: Confirm the work-plan [done at the Phase gate]
+
+Once the work-plan is approved at the Phase gate, rewrite the machine-readable marker in
+`01-plan/work-plan.md`:
+
+```
+<!-- WORK-PLAN-STATUS: CONFIRMED -->
+```
+
+This switches verify.sh's build/smoke/integration gates from "not applicable" to applying for real.
+**If the expected list is still empty, the build gate FAILs** (the enforcement of CP-7).
+
+### Phase 2 completion conditions
+
+- [ ] Every ATX finding has been corroborated against the real code
+- [ ] The comparison table exists (with needs-fixing / no-problem / unconfirmed labels)
+- [ ] work-plan.md exists
+  - [ ] A staged build plan exists (minimal configuration → incremental additions)
+  - [ ] A verification method is defined for every fix
+  - [ ] The success criteria table exists, and every artifact is registered in verify.sh's expected list
+  - [ ] Applicable / non-applicable knowledge items are stated
+- [ ] `WORK-PLAN-STATUS` is CONFIRMED and `./verify.sh status` reports it as applying for real
+- [ ] `03-worklog/session-context.md` and `worklog.md` are updated
+
+---
+
+## Next Phase
+
+After Phase 2 completes, follow `01-plan/work-plan.md` and start implementation from Step 1.

@@ -1,0 +1,52 @@
+# ATX Transform Config: Java モダナイゼーション分析
+# additionalPlanContext は 4096バイト以内(ATX上限)。
+# 実行: 記録リポジトリのルートで
+#   atx custom def exec -g file://00-analysis/<repo-id>/transform-config-cca.yaml -x -t
+# codeRepositoryPath は**記録リポジトリのルートからの相対パス**（基準を1つに固定する）。
+# 設定後に `realpath <値>` で実在パスに解決できることを必ず確認する。
+
+codeRepositoryPath: <RELATIVE_PATH_TO_SOURCE>
+transformationName: AWS/comprehensive-codebase-analysis
+buildCommand: noop
+additionalPlanContext: |
+  出力言語: 日本語
+  目的: Javaレガシーモダナイゼーション分析。work-planインプット用。
+
+  ## 環境
+  | 項目 | 現行 | 目標 |
+  |------|------|------|
+  | Java | <SRC_JAVA> | <TGT_JAVA> (LTS) |
+  | Webフレームワーク | <SRC_WEB_FW> | <TGT_WEB_FW> |
+  | DI/コア | <SRC_SPRING> | <TGT_SPRING> |
+  | Servlet API | <SRC_EE> (javax) | <TGT_EE> (jakarta) |
+  | コンテナ | <SRC_CONTAINER> | <TGT_CONTAINER> |
+  | フロントエンド | <SRC_FRONTEND> | <TGT_FRONTEND> |
+  | ビルド | <BUILD_TOOL> | 同左 |
+
+  ## 移行先が未定の場合（Phase 0a で目標欄が空のとき）
+  上記「環境」表の移行先列が空欄なら、目標を仮定せず次を追加で報告すること:
+  - 現行スタックの棚卸し（言語/フレームワーク/ランタイム/依存の版とサポート状況）
+  - **実行可能な移行先候補の列挙**: 候補ごとに LTS/サポート期限、既知の破壊的変更の規模、
+    および**互換連鎖**（この版を選ぶと連鎖して上がる依存）を明示する
+  - 候補間のトレードオフ（作業量 / リスク / サポート期間）
+  移行方針は Phase 0b でユーザーが ADR として決定する。分析側で断定しないこと。
+
+  ## 分析観点
+  1. javax→jakarta 名前空間: 影響パッケージ(servlet/persistence/mail等)と影響ファイル数
+  2. フレームワーク互換連鎖: Webフレームワーク/セキュリティ/DIの必須依存関係と
+     目標バージョン組み合わせの整合性（EE レベル前提の矛盾検出）
+  3. フレームワーク内部API依存: 内部パッケージ・非推奨APIへの依存箇所の定量化
+     （メジャー版でのパッケージ改名・API廃止の影響）
+  4. セキュリティデフォルト変更【重要】: 目標バージョンで有効化される制限
+     （パラメータバインド制約、式言語のアローリスト、CSRF等）と影響箇所。
+     サイレント障害（例外なく空になる/不発になる）になり得るものを明示すること
+  5. レガシープロトコル・依存: 廃止候補（XML-RPC, OAuth 1.0等）の利用実態と削除影響
+  6. ログ・ユーティリティ: SLF4J等ファサードの版差、commons系の版差
+  7. データアクセス: JPA実装の版差、対応DBの整理（サポート打ち切りDB）
+  8. テスト資産: ユニット/E2Eテストの所在・実行方法・カバー範囲
+     （baseline モードC（既存テストを流用）の判断とテスト基盤移行の要否のため）
+  9. フロントエンド: CSSフレームワーク/JSライブラリの版差と廃止（AngularJS等EOL品）
+
+  ## 報告形式
+  - 破壊的変更: |コンポーネント|変更|旧動作|新動作|対応方法|影響箇所数|
+  - 公式マイグレーションガイドのURL一覧（バージョン境界ごとに全て）

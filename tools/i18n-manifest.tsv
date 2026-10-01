@@ -1,0 +1,75 @@
+# i18n manifest — ja/ is the source of truth, targets are generated artifacts.
+# Columns: source (relative to ja/) <TAB> target (relative to repo root) <TAB> class <TAB> flags
+#   class  translate          = translate the whole file
+#          translate-comments = translate comments and user-facing strings only; never touch code
+#          copy               = copy verbatim (no prose in the file)
+#   flags  -                  = none
+#          code-identical     = check-i18n.sh enforces byte-identical code lines (non-comment, non-echo)
+#          root-readme        = generated at the repository root; relative doc links must be prefixed with en/
+README.md	README.md	translate	root-readme
+docs/authoring-playbook.md	en/docs/authoring-playbook.md	translate	-
+docs/concepts.md	en/docs/concepts.md	translate	-
+docs/for-engineers.md	en/docs/for-engineers.md	translate	-
+docs/how-to-use.md	en/docs/how-to-use.md	translate	-
+docs/overview-for-business.md	en/docs/overview-for-business.md	translate	-
+harness/README.md	en/harness/README.md	translate	-
+harness/core/migration-core.md	en/harness/core/migration-core.md	translate	-
+harness/setup-modernized.sh	en/harness/setup-modernized.sh	translate-comments	-
+harness/skills/migration-adversarial-review/SKILL.md	en/harness/skills/migration-adversarial-review/SKILL.md	translate	-
+harness/skills/migration-adr/SKILL.md	en/harness/skills/migration-adr/SKILL.md	translate	-
+harness/skills/migration-tree-setup/SKILL.md	en/harness/skills/migration-tree-setup/SKILL.md	translate	-
+harness/skills/migration-recording/SKILL.md	en/harness/skills/migration-recording/SKILL.md	translate	-
+harness/skills/migration-session/SKILL.md	en/harness/skills/migration-session/SKILL.md	translate	-
+harness/skills/migration-subtask/SKILL.md	en/harness/skills/migration-subtask/SKILL.md	translate	-
+harness/skills/migration-troubleshooting/SKILL.md	en/harness/skills/migration-troubleshooting/SKILL.md	translate	-
+harness/skills/migration-verification/SKILL.md	en/harness/skills/migration-verification/SKILL.md	translate	-
+harness/templates/baseline-behavior.md.template	en/harness/templates/baseline-behavior.md.template	translate	-
+harness/templates/decisions.md.template	en/harness/templates/decisions.md.template	translate	-
+harness/templates/lessons-learned.md.template	en/harness/templates/lessons-learned.md.template	translate	-
+harness/templates/migration-project.md.template	en/harness/templates/migration-project.md.template	translate	-
+harness/templates/project-seed/01-plan/environment-diff-table.md	en/harness/templates/project-seed/01-plan/environment-diff-table.md	translate	-
+harness/templates/project-seed/00-analysis/analysis-runs.md	en/harness/templates/project-seed/00-analysis/analysis-runs.md	translate	-
+harness/templates/project-seed/00-analysis/repository-inventory.md	en/harness/templates/project-seed/00-analysis/repository-inventory.md	translate	-
+harness/templates/project-seed/01-plan/adaptation-ledger.md	en/harness/templates/project-seed/01-plan/adaptation-ledger.md	translate	-
+harness/templates/project-seed/01-plan/work-plan.md	en/harness/templates/project-seed/01-plan/work-plan.md	translate	-
+harness/templates/project-seed/02-test/test-procedures.md	en/harness/templates/project-seed/02-test/test-procedures.md	translate	-
+harness/templates/project-seed/03-worklog/worklog.md	en/harness/templates/project-seed/03-worklog/worklog.md	translate	-
+harness/templates/project-seed/gitignore.template	en/harness/templates/project-seed/gitignore.template	translate-comments	-
+harness/templates/session-context.md.template	en/harness/templates/session-context.md.template	translate	-
+harness/templates/subtask-plan.md.template	en/harness/templates/subtask-plan.md.template	translate	-
+harness/tools/turn-log.sh	en/harness/tools/turn-log.sh	translate-comments	-
+harness/tools/turn-report.sh	en/harness/tools/turn-report.sh	translate-comments	-
+harness/tools/work-declaration-guard.sh	en/harness/tools/work-declaration-guard.sh	translate-comments	-
+harness/verify.sh.template	en/harness/verify.sh.template	translate-comments	code-identical
+method/analysis-procedure.md.template	en/method/analysis-procedure.md.template	translate	-
+method/flow.md	en/method/flow.md	translate	-
+method/practices-common.md	en/method/practices-common.md	translate	-
+method/tools/generate-html.sh	en/method/tools/generate-html.sh	translate-comments	-
+playbooks/clang-solarisx86-to-amznlinux/README.md	en/playbooks/clang-solarisx86-to-amznlinux/README.md	translate	-
+playbooks/clang-solarisx86-to-amznlinux/analysis-appendix.md	en/playbooks/clang-solarisx86-to-amznlinux/analysis-appendix.md	translate	-
+playbooks/clang-solarisx86-to-amznlinux/baseline-themes.md	en/playbooks/clang-solarisx86-to-amznlinux/baseline-themes.md	translate	-
+playbooks/clang-solarisx86-to-amznlinux/modernized-gitignore.template	en/playbooks/clang-solarisx86-to-amznlinux/modernized-gitignore.template	translate-comments	-
+playbooks/clang-solarisx86-to-amznlinux/practices.md	en/playbooks/clang-solarisx86-to-amznlinux/practices.md	translate	-
+playbooks/clang-solarisx86-to-amznlinux/reference/ilp32-to-lp64-struct-layout.md	en/playbooks/clang-solarisx86-to-amznlinux/reference/ilp32-to-lp64-struct-layout.md	translate	-
+playbooks/clang-solarisx86-to-amznlinux/reference/longrun_server_migration_considerations.md	en/playbooks/clang-solarisx86-to-amznlinux/reference/longrun_server_migration_considerations.md	translate	-
+playbooks/clang-solarisx86-to-amznlinux/reference/solaris_linux_differences.md	en/playbooks/clang-solarisx86-to-amznlinux/reference/solaris_linux_differences.md	translate	-
+playbooks/clang-solarisx86-to-amznlinux/transform-config-cca-template.yaml	en/playbooks/clang-solarisx86-to-amznlinux/transform-config-cca-template.yaml	translate-comments	-
+playbooks/clang-solarisx86-to-amznlinux/transform-config-template_full.yaml	en/playbooks/clang-solarisx86-to-amznlinux/transform-config-template_full.yaml	translate-comments	-
+playbooks/clang-solarisx86-to-amznlinux/verify-snippets.md	en/playbooks/clang-solarisx86-to-amznlinux/verify-snippets.md	translate	-
+playbooks/java-modernization/README.md	en/playbooks/java-modernization/README.md	translate	-
+playbooks/java-modernization/analysis-appendix.md	en/playbooks/java-modernization/analysis-appendix.md	translate	-
+playbooks/java-modernization/baseline-themes.md	en/playbooks/java-modernization/baseline-themes.md	translate	-
+playbooks/java-modernization/modernized-gitignore.template	en/playbooks/java-modernization/modernized-gitignore.template	translate-comments	-
+playbooks/java-modernization/practices.md	en/playbooks/java-modernization/practices.md	translate	-
+playbooks/java-modernization/reference/java-modernization-considerations.md	en/playbooks/java-modernization/reference/java-modernization-considerations.md	translate	-
+playbooks/java-modernization/transform-config-cca-template.yaml	en/playbooks/java-modernization/transform-config-cca-template.yaml	translate-comments	-
+playbooks/java-modernization/verify-snippets.md	en/playbooks/java-modernization/verify-snippets.md	translate	-
+playbooks/dotnetfw-to-modern-dotnet/README.md	en/playbooks/dotnetfw-to-modern-dotnet/README.md	translate	-
+playbooks/dotnetfw-to-modern-dotnet/analysis-appendix.md	en/playbooks/dotnetfw-to-modern-dotnet/analysis-appendix.md	translate	-
+playbooks/dotnetfw-to-modern-dotnet/baseline-themes.md	en/playbooks/dotnetfw-to-modern-dotnet/baseline-themes.md	translate	-
+playbooks/dotnetfw-to-modern-dotnet/modernized-gitignore.template	en/playbooks/dotnetfw-to-modern-dotnet/modernized-gitignore.template	translate-comments	-
+playbooks/dotnetfw-to-modern-dotnet/practices.md	en/playbooks/dotnetfw-to-modern-dotnet/practices.md	translate	-
+playbooks/dotnetfw-to-modern-dotnet/reference/compat-switches.md	en/playbooks/dotnetfw-to-modern-dotnet/reference/compat-switches.md	translate	-
+playbooks/dotnetfw-to-modern-dotnet/reference/runtime-generation-differences.md	en/playbooks/dotnetfw-to-modern-dotnet/reference/runtime-generation-differences.md	translate	-
+playbooks/dotnetfw-to-modern-dotnet/transform-config-cca-template.yaml	en/playbooks/dotnetfw-to-modern-dotnet/transform-config-cca-template.yaml	translate-comments	-
+playbooks/dotnetfw-to-modern-dotnet/verify-snippets.md	en/playbooks/dotnetfw-to-modern-dotnet/verify-snippets.md	translate	-

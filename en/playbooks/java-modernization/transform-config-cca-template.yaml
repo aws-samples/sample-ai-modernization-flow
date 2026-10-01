@@ -1,0 +1,54 @@
+# ATX Transform Config: Java modernization analysis
+# additionalPlanContext must be within 4096 bytes (ATX limit).
+# Run from the root of the records repository:
+#   atx custom def exec -g file://00-analysis/<repo-id>/transform-config-cca.yaml -x -t
+# codeRepositoryPath is **relative to the root of the records repository** (keep a single base).
+# After setting it, always confirm it resolves to a real path with `realpath <value>`.
+
+codeRepositoryPath: <RELATIVE_PATH_TO_SOURCE>
+transformationName: AWS/comprehensive-codebase-analysis
+buildCommand: noop
+additionalPlanContext: |
+  Output language: English
+  Purpose: Java legacy modernization analysis. Input for the work-plan.
+
+  ## Environment
+  | Item | Current | Target |
+  |------|------|------|
+  | Java | <SRC_JAVA> | <TGT_JAVA> (LTS) |
+  | Web framework | <SRC_WEB_FW> | <TGT_WEB_FW> |
+  | DI/core | <SRC_SPRING> | <TGT_SPRING> |
+  | Servlet API | <SRC_EE> (javax) | <TGT_EE> (jakarta) |
+  | Container | <SRC_CONTAINER> | <TGT_CONTAINER> |
+  | Frontend | <SRC_FRONTEND> | <TGT_FRONTEND> |
+  | Build | <BUILD_TOOL> | same |
+
+  ## If the migration target is undecided (target column empty in Phase 0a)
+  If the target column of the "Environment" table above is empty, do not assume a target;
+  additionally report the following:
+  - An inventory of the current stack (language/framework/runtime/dependency versions and support status)
+  - **An enumeration of viable migration targets**: for each candidate, state the LTS/end-of-support
+    date, the scale of known breaking changes, and the **compatibility chain**
+    (the dependencies that are forced up by choosing that version)
+  - The trade-offs between candidates (effort / risk / support window)
+  The migration policy is decided by the user as an ADR in Phase 0b. Do not conclude it on the analysis side.
+
+  ## Analysis viewpoints
+  1. javax→jakarta namespace: affected packages (servlet/persistence/mail, etc.) and affected file count
+  2. Framework compatibility chain: required dependencies among web framework/security/DI and
+     consistency of the target version combination (detect contradictions in assumed EE level)
+  3. Framework internal API dependencies: quantify usages of internal packages/deprecated APIs
+     (impact of package renames/API removals across major versions)
+  4. Security default changes [IMPORTANT]: restrictions enabled in the target version
+     (parameter binding constraints, expression language allowlists, CSRF, etc.) and affected locations.
+     Explicitly flag anything that could become a silent failure (becomes empty/fails to fire without an exception)
+  5. Legacy protocols/dependencies: actual usage and removal impact of deprecation candidates (XML-RPC, OAuth 1.0, etc.)
+  6. Logging/utilities: version differences of facades such as SLF4J, version differences of commons-* libraries
+  7. Data access: version differences of JPA implementations, review of supported DBs (DBs with support dropped)
+  8. Test assets: location, execution method, and coverage of unit/E2E tests
+     (for the baseline Mode C (reuse the existing tests) decision and whether test infrastructure migration is needed)
+  9. Frontend: version differences and deprecation of CSS frameworks/JS libraries (EOL items such as AngularJS)
+
+  ## Report format
+  - Breaking changes: |Component|Change|Old behavior|New behavior|Remediation|Number of affected locations|
+  - List of official migration guide URLs (all of them, per version boundary)

@@ -1,0 +1,13 @@
+# --- [port] build artifacts: Java / Maven (このPlaybookのビルド成果物) ---
+target/
+*.class
+*.jar
+*.war
+*.ear
+.classpath
+.project
+.settings/
+.idea/
+*.iml
+logs/
+*~

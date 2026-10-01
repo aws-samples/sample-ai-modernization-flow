@@ -1,0 +1,189 @@
+# 注: 全オプションを示す参考例であり install.sh は設置しない（設置されるのは transform-config-cca-template.yaml）。
+# =============================================================================
+# ATX Transform Config テンプレート: Solaris→Linux ポーティング分析
+# =============================================================================
+# 
+# 使い方:
+#   1. このファイルをコピーしてプロジェクト固有の値を埋める
+#   2. <PLACEHOLDER> を実際の値に置換する
+#   3. 「プロジェクト固有の追加観点」の <PROJECT_SPECIFIC_NOTES> に対象固有の重点を箇条書きで書く
+#      （記入例: 特に注目する日時処理、メジャー版差の大きいライブラリとその主な変更点、
+#      テスト・仕様書の有無）。無ければ節ごと削除する
+#   4. atx custom def exec -g file://transform-config.yaml -x -t で実行
+#
+# 注意:
+#   - ATXの分析結果はあくまで「一般的な指摘」であり、実コードで裏取りが必要 (CP-3)
+#   - ATX出力はwork-planのインプットとして使うが、そのまま計画に転記しない
+#   - additionalPlanContext は **4096バイト以内** に収めること（ATXの上限制約）
+#     超過すると切り詰められるため、知見は要点のみ圧縮して記述する
+#   - ATX実行は数十分規模の長時間コマンドになる。AIエージェントがバックグラウンドで実行し、
+#     ログのtail監視で進捗を確認する（harness コア規律「長時間実行コマンド」参照）
+#
+# =============================================================================
+#
+# codeRepositoryPath は記録リポジトリのルートからの相対パス（atx は記録リポジトリのルートで実行する）
+
+codeRepositoryPath: <RELATIVE_PATH_TO_SOURCE>
+transformationName: AWS/comprehensive-codebase-analysis
+buildCommand: noop
+additionalPlanContext: |
+  ## 出力言語
+  すべてのドキュメントを日本語で出力してください。
+
+  ## 分析の目的
+  このコードベースを <SOURCE_OS> → <TARGET_OS> 移行の対象として分析する。
+  分析結果は「work-plan」のインプットとして使用するため、以下の形式で出力すること。
+
+  ## ターゲット環境
+
+  | 項目 | 旧環境 (移行元) | 新環境 (移行先) |
+  |------|----------------|----------------|
+  | OS | <SOURCE_OS_VERSION> | <TARGET_OS_VERSION> |
+  | アーキテクチャ | <SOURCE_ARCH> | <TARGET_ARCH> |
+  | コンパイラ | <SOURCE_CC_VERSION> | <TARGET_CC_VERSION> |
+  | OpenSSL | <SOURCE_OPENSSL_VERSION> | <TARGET_OPENSSL_VERSION> |
+  | その他ライブラリ | <SOURCE_LIBS> | <TARGET_LIBS> |
+
+  # =========================================================================
+  # セクション1: 分析観点
+  # =========================================================================
+
+  ## 1. OS固有コード
+  - 移行元OS固有の条件コンパイル (#ifdef __sun, #ifdef solaris 等)
+  - 移行元OS固有のシステムコール使用箇所
+  - 移行元OS固有のコンパイラプラグマ・属性
+  - configureスクリプトのOS検出・機能テスト
+
+  ## 2. アーキテクチャ移行の影響 (例: 32bit→64bit)
+  - long型/ポインタサイズ依存
+  - 構造体のサイズ・パディング変化
+  - sizeof依存のコード
+  - 固定サイズバッファへの型格納
+
+  ## 3. 2038年問題 (time_t)
+  - time_tの使用箇所すべて
+  - time_tからint/int32_tへのダウンキャスト
+  - タイムスタンプのシリアライズ（ヘッダ、ファイル）
+  - **固定文字列としてハードコードされた日付（年=2037等）** ← 見逃しやすい
+  - 有効期限計算、HTTPヘッダ日時処理
+
+  ## 4. 依存ライブラリの振る舞い変更 【最重要】
+  
+  ⚠️ 以下は「APIが削除されたか」ではなく「同じAPIの振る舞いが変わったか」を調べること。
+  コンパイル成功・部分動作成功でも、特定の状態遷移でのみ顕在化する問題を見つけたい。
+
+  ### 調査手順
+  1. 移行元→移行先でメジャーバージョンが変わるライブラリを特定する
+  2. 各ライブラリのCHANGES/NEWS（メジャー版境界分すべて）を確認する
+  3. **新設された互換オプション・フラグを列挙し、各々「なぜ追加されたか」を報告する**
+     - 新設オプション = 「旧動作に戻すスイッチ」 = 「壊れた振る舞いがある」のシグナル
+  4. **デフォルト値が変わった項目を報告する**
+  5. 上記各項目について、本コードベースのどの箇所が影響を受けるか特定する
+
+  ### 報告形式（振る舞い変更）
+  | ライブラリ | 変更内容 | 旧動作 | 新動作 | 互換オプション | 影響箇所 |
+  |-----------|---------|--------|--------|--------------|---------|
+  | (例) OpenSSL 3.x | unexpected EOF handling | SSL_ERROR_WANT_READ | SSL_ERROR_SSL | SSL_OP_IGNORE_UNEXPECTED_EOF | ngx_ssl_recv() |
+
+  ## 5. プラットフォームconfig.hのマクロ値検証
+
+  移行元OS用のconfig.hをコピーして移行先用を作る場合、各マクロの値が
+  移行先OSで正しいかを検証する必要がある。特に以下は要注意:
+
+  ### 報告形式（マクロ値検証）
+  | マクロ | 移行元OS値 | 移行先OS正解値 | 根拠(man等) | 間違えた場合の影響 |
+  |--------|-----------|---------------|------------|-------------------|
+  | (例) NGX_HAVE_INHERITED_NONBLOCK | 1 | 0 | man 2 accept | ソケットがblocking→SSL_read 6秒ブロック |
+
+  対象マクロカテゴリ:
+  - accept継承 (O_NONBLOCK)
+  - sendfile引数・戻り値
+  - イベント機構のデフォルト動作
+  - ソケットオプション名 (TCP_CORK vs TCP_NOPUSH)
+
+  ## 6. イベント駆動I/Oモデル
+
+  - 移行元のイベントモデル（event ports, kqueue, /dev/poll等）の使用箇所
+  - 移行先のイベントモデル（epoll等）への変換パス
+  - **既存コードがエッジトリガ/レベルトリガのどちらを前提にしているか報告すること**
+    - readハンドラ内でEAGAINまで読み切るループがある → エッジトリガ前提
+    - 1回のread/writeで戻る設計 → レベルトリガ前提
+    - この判定結果はイベントモジュール実装の設計制約になる
+
+  ## 7. ビルド互換性
+  - 非推奨・削除されたAPI使用
+  - コンパイラ警告→エラー昇格で問題になる箇所
+  - 不透明型(opaque type)化によるメンバー直接アクセスの不可
+
+  ## 8. 文字コード・ロケール
+  - setlocale()の使用箇所
+  - ロケール依存libc関数の使用
+  - ソースファイル自体のエンコーディング
+  - 方針: 内部エンコーディングは変換せず維持する
+
+  # =========================================================================
+  # セクション2: 移行元→移行先の既知の差異（知見インポート）
+  # =========================================================================
+
+  ## OS間差異（事前調査済み知見）
+
+  | キーワード | Solaris | Linux |
+  |-----------|---------|-------|
+  | Atomic | atomic.h (atomic_add_32_nv=新値, atomic_cas_32=旧値) | __atomic_fetch_add=旧値, __atomic_compare_exchange_n=bool |
+  | Event I/O | port_create/port_associate/port_getn (自動解除,timespec) | epoll_create1/epoll_ctl/epoll_wait (永続,ms) |
+  | 高精度時刻 | gethrtime() → uint64_t ns直接 | clock_gettime(CLOCK_MONOTONIC) → struct timespec |
+  | Thread | thr_create(6引数)/thr_join(3引数) | pthread_create(4引数)/pthread_join(2引数) |
+  | SharedMem | POSIX共通。shmmax差 | 同左 |
+  | Signal | POSIX共通。SIGRTMIN範囲差 | 同左 |
+  | FileSystem | stat64()明示, attropen() | _FILE_OFFSET_BITS=64, getxattr() |
+  | Network | TCP_NOPUSH, SO_EXCLBIND | TCP_CORK, EAGAIN==EWOULDBLOCK |
+  | Process | /proc=構造体, RLIMIT_VMEM | /proc=テキスト, RLIMIT_AS |
+  | Build | -lsocket -lnsl, -mt, __sun | 不要(glibc統合), -pthread, __linux__ |
+  | Locale | ja_JP.eucJP/PCK | ja_JP.UTF-8, -finput-charset |
+  | Doors | door_create/door_call | Unix Domain Sockets |
+  | Contract | /system/contract, ctfs | cgroups v2 |
+  | kstat | kstat_open/kstat_lookup | /proc, /sys |
+  | DTrace | dtrace(1) | eBPF/bpftrace |
+  | RBAC | usermod -P | capabilities, SELinux |
+  | FMA | fmadm | rasdaemon, mcelog |
+  | ZFS | zpool/zfs | ext4/xfs+LVM or OpenZFS |
+  | libumem | umem_alloc/umem_free | jemalloc, tcmalloc |
+  | SMF | svcadm/svcs | systemd |
+  | libc ABI | 再コンパイル必須, strlcpy有 | struct stat差, strlcpy無(glibc<2.38) |
+
+  # =========================================================================
+  # セクション3: 期待する出力形式
+  # =========================================================================
+
+  ## 期待する出力
+
+  ### A. アーキテクチャ概要
+  - モジュール構造、イベントモデル、データフロー
+
+  ### B. 移行影響箇所一覧
+  以下の形式で出力すること（work-planの各修正項目に直接使える粒度）:
+
+  | # | カテゴリ | ファイル:行 | 現在のコード | 必要な修正 | 優先度 | 検証方法 |
+  |---|---------|------------|-------------|-----------|--------|---------|
+
+  - 「検証方法」列は必須: その修正が正しいことをどう確認するか（コマンド/期待出力）
+  - 「優先度」は ビルド不可(P0) / 実行時エラー(P1) / 警告・非効率(P2) / 任意改善(P3)
+
+  ### C. 振る舞い変更の影響一覧（セクション1-4の結果）
+  - ライブラリ振る舞い変更テーブル
+  - config.hマクロ値検証テーブル
+
+  ### D. 依存関係マップ
+  - 修正間の依存関係（A修正後にBが可能等）
+  - Phase分割の推奨
+
+  ### E. リスク評価
+  - 「ビルドは通るが実行時に壊れる」パターンの列挙（最も見落としやすいため強調）
+
+  # =========================================================================
+  # セクション4: プロジェクト固有の追加観点
+  # =========================================================================
+
+  ## プロジェクト固有の追加観点
+
+  <PROJECT_SPECIFIC_NOTES>

@@ -1,0 +1,9 @@
+# The modernized tree is managed as a separate sibling repository (../<PRODUCT>-modernized).
+# It is not placed under this project, but ignored here as a safeguard against accidental placement.
+*-modernized/
+.DS_Store
+
+# Turn timestamp raw log (install.sh --turn-log; the hook appends one row per turn).
+# **Must not be tracked**: repo-sync treats untracked files as a failure, so the session
+# would fail every gate. The permanent record is the table pasted into worklog.
+03-worklog/turn-log.tsv

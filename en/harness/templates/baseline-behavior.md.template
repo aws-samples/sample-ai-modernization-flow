@@ -1,0 +1,152 @@
+# Baseline Behavior Tests (Characterization Tests)
+
+## Purpose
+
+Before migration work begins, record the current "normal behavior" as a **test that fixes input/output (Characterization Test)**.
+After migration, run the same tests and detect regressions from the diff against the baseline. This becomes the foundation of the post-migration regression tests.
+
+In legacy migration, the specification does not exist as a natural-language document but as "the behavior of the current code."
+Equivalence verification (whether the conversion preserves the current behavior without breaking it) is the central challenge of migration,
+and the baseline is its "ground truth data."
+
+Reference: practices.md CP-5
+
+## Timing of Capture
+
+- Always perform this **after Phase 2 (Analysis) is complete and before Phase 3 (Implementation) begins**
+- If the old environment is still alive, now is the only chance to capture it. Treat this as top priority.
+
+---
+
+## Mode Selection (decide first)
+
+The capture method changes fundamentally depending on the state of the old environment and existing test assets. **Decide which mode to proceed with during Phase 1, and state it explicitly
+in the work-plan** (if Mode B = define by reading the code, record it as a risk). Combining multiple modes is also allowed.
+
+| | Mode A (measure on the old environment) | Mode B (define by reading the code) | Mode C (reuse the existing tests) |
+|---|---|---|---|
+| When to choose it | Old environment available | No old environment | Existing test assets available |
+| Source of baseline | **Observed results from the real system** (run it and record) | **Code reading** (define expected behavior from source, constants, and specs) | **Existing unit/E2E test suite** (an executable specification of current behavior) |
+| Confidence | High (measured values) | Low–Medium (a hypothesis from reading. **Treat it on the assumption that errors will be found during implementation**) | High (executable specification) |
+| Post-migration comparison | Mechanical diff detection via `diff-baseline` | Cross-checking the expected-behavior description against runtime observations (requires human judgment) | All tests in the suite PASS |
+| Mitigation | — | **Increase the weight of runtime tests**: strengthen verify's smoke/integration tests and systematically apply the theme-specific test patterns for the migration | **Migrating the test infrastructure itself becomes part of the work scope** (count modernizing the test runner, drivers, and execution environment as a Step in the work-plan) |
+
+### Notes when choosing Mode B (define by reading the code)
+
+- Always attach **evidence (source file, line number, constant value)** to each item in baseline-behavior.md.
+  Expected behavior without evidence is distinguished as "unconfirmed"
+- A baseline derived from code reading is weak as decision material for Tier 2 (HOLD / stop-and-confirm zone) judgments.
+  For decisions such as feature exclusion (HOLD-1), perform additional corroboration
+- If behavior observed after migration conflicts with the baseline description, **suspect both** "a migration bug" and "an error in the baseline"
+  (CP-2: do not prematurely settle on a single root cause)
+
+---
+
+## Test Patterns by Migration Theme (common to both modes)
+
+For each type of migration, the "behaviors prone to breaking" are already known. Refer to the **`02-test/baseline-themes.md`
+(a domain-specific theme table) provided by the Playbook**, and **systematically** incorporate the patterns for the applicable
+themes into the baseline / verify integration gates.
+
+Patterns that are generally effective (apply regardless of domain):
+
+| Theme | Test pattern | Reference |
+|--------|--------------|------|
+| Boundary values / ranges | **Scan across a range** rather than a single value (deviations only become visible around a boundary — e.g., date boundaries, size limits, character-encoding boundaries) | CP-5 |
+| Process/service startup | Fix the observation points of the startup sequence: process liveness, port/endpoint response, externally visible state (PID file, registration info, etc.). **State prerequisite services and environment variables explicitly as test preconditions** | CP-4 |
+| Input/output round trips | Match save→retrieve and encode→decode round trips. Do not judge from a one-way check alone | — |
+
+---
+
+## Mode A (measure on the old environment): Capture Procedure
+
+### 1. Old environment information
+
+| Item | Value |
+|------|---|
+| Host | <OLD_HOST> |
+| OS | <SOURCE_OS_VERSION> |
+| App version | <APP_VERSION> |
+| Dependent libraries | <LIBS_AND_VERSIONS> |
+| Capture date | YYYY-MM-DD |
+
+### 2. Example capture commands
+
+```bash
+# --- HTTP response ---
+curl -v http://<OLD_HOST>:<PORT>/ > baseline/http-response.txt 2>&1
+
+# --- HTTPS response (including TLS handshake) ---
+curl -vk https://<OLD_HOST>:<HTTPS_PORT>/ > baseline/https-response.txt 2>&1
+
+# --- Header check ---
+curl -I http://<OLD_HOST>:<PORT>/<PATH> > baseline/headers.txt 2>&1
+
+# --- Error log (pattern under normal operation) ---
+cp <ERROR_LOG_PATH> baseline/error-log-normal.txt
+
+# --- syscall trace (for one normal request) ---
+strace -T -e trace=network -p <PID> -o baseline/strace-normal.txt &
+curl -s http://<OLD_HOST>:<PORT>/ > /dev/null
+kill %1
+
+# --- Performance baseline ---
+for i in $(seq 1 10); do
+  curl -s -o /dev/null -w '%{time_total}\n' http://<OLD_HOST>:<PORT>/
+done > baseline/response-times.txt
+
+# --- Fixing CLI input/output (Characterization) ---
+# Save the full output for a representative set of inputs
+<CLI_BIN> <ARGS_1> > baseline/cli-case1.txt 2>&1
+<CLI_BIN> <ARGS_2> > baseline/cli-case2.txt 2>&1
+```
+
+### 3. Storage location
+
+```
+02-test/test-results/baseline/
+├── <observation-file>.txt    # Output of the commands above
+└── known-diffs.md            # Record of intentional diffs (append after migration)
+```
+
+### 4. Post-migration comparison
+
+```bash
+# After migration, capture with the same commands and diff (or make -f verify.sh diff-baseline)
+diff baseline/http-response.txt current/http-response.txt
+```
+
+---
+
+## Mode B (define by reading the code): Definition Procedure (no old environment)
+
+### 1. Defining expected behavior
+
+Describe each component in the following format. **The evidence column is required**:
+
+| # | Component | Observation point | Expected behavior | Evidence (source:line / constant) | Confidence |
+|---|--------------|--------|---------|------------------------|------|
+| B-1 | <component> | Startup | <what happens at startup> | <file.c:123> | High/Medium/Low |
+| B-2 | <component> | Core | <input/output of the main functionality> | <file.c:456> | High/Medium/Low |
+| B-3 | <component> | IPC/External | <externally observable state: port, property, file> | <file.c:789> | High/Medium/Low |
+| B-4 | <component> | Exit | <conditions for normal/abnormal termination and exit codes> | <file.c:012> | High/Medium/Low |
+
+### 2. Conversion into Testable Assertions
+
+Convert each expected behavior into a "command that can be run and observed after migration + expected result," and
+register it in a script under `02-test/integration/` or in verify-smoke.
+**Any expected behavior that cannot be converted must be recorded as "unverifiable" in the risk section of the work-plan.**
+
+### 3. Updating the baseline
+
+If an error in the baseline description is discovered during implementation, correct it on the spot and update the "confidence."
+Since the correction history can be tracked via git, overwriting is fine (but write the reason in the commit message).
+
+---
+
+## Notes (common to both modes)
+
+- Normalize dynamic values such as timestamps and PIDs before comparison (e.g., strip them with sed)
+- Allow performance variation of roughly ±20% as acceptable
+- The problem is not "that a diff exists" but "that an unintended diff exists"
+- Record intentional diffs (e.g., a version change in the Server header) in `known-diffs.md`

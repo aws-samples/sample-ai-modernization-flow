@@ -1,0 +1,102 @@
+# Design Decision Records (ADR)
+
+## About This Document
+
+### Purpose
+Record the **design decisions** made in this project in `ADR-N` format.
+
+- Record technical lessons in `docs/knowledge/lessons-learned.md` in `LL-N` format.
+- Record shared knowledge (domain-independent) in `docs/knowledge/practices-common.md`, and domain knowledge in `docs/knowledge/practices.md`, in `DP-N` format.
+
+### Rules for Adding Entries
+1. Insert new entries **immediately before** the `ENTRIES END` marker (a single HTML comment line at the end of this file; this marker must not be moved).
+2. Numbers must be sequential (`ADR-N`, where `N` is the existing maximum value + 1).
+3. **Do not modify past ADRs** (append-only). To overturn a decision, create a new ADR and reference the old ADR in its body, e.g. `Supersedes: ADR-N`.
+4. **Ordering**: older entries at the top, newer entries appended at the bottom (chronological order).
+5. Each entry must use the format `## ADR-N: <Title>` and must include the following sections:
+   - **Decision Date**
+   - **Phase**
+   - **Background**
+   - **Options**
+   - **Decision**
+   - **Reason**
+   - **Impact**
+6. Cross-reference related `LL-N` (lessons-learned) or `DP-N` (playbook) entries in the body where applicable.
+7. Changes to this file must be tracked with git, with the reason for the change recorded in the commit message.
+
+---
+
+<!-- Example entry:
+
+## ADR-1: <Title>
+
+- **Decision Date**: YYYY-MM-DD
+- **Phase**: Phase X Step Y
+- **Background**: <Why this decision became necessary>
+- **Options**: (1) ... (2) ... (3) ...
+- **Decision**: (N) ...
+- **Reason**: <Why this option was chosen>
+- **Impact**: <What changes as a result of this decision>
+
+-->
+
+<!-- ENTRIES END -->
+
+---
+
+## Independent Verification Record
+
+<!-- INDEPENDENT-VERIFICATION -->
+<!-- ↑ A machine-readable marker. `./verify.sh adaptation` checks that this section contains
+     **a row carrying a date** once the adaptation ledger's unaddressed count reaches zero
+     (because zero unaddressed amounts to a completion declaration). Do not delete the marker.
+
+     Follow skills/migration-adversarial-review and verify independently with a context-isolated
+     refuter. **It applies to exactly two things:**
+
+     - **The migration completion declaration** (the end of Phase 4) → **it runs once**. Look at the
+       coverage of the perspective table (the table, not the code). Open the findings in the adaptation
+       ledger and close each one with a disposition.
+       **Do not sweep the lenses again** — re-verify the fixes with verify.sh and the negative tests
+     - **A HOLD-1 feature exclusion** (before approving the exclusion ADR) → **a light, per-item
+       second opinion**. Do not sweep everything
+
+     **It does not apply to confirming the work-plan (Phase 2→3) or to Phase boundaries.** Instead,
+     **the detector negative tests** (CP-13, the section below) do the same job mechanically.
+     Findings left over at a reversible boundary are carried into the adaptation ledger as
+     `unaddressed` rows.
+
+     **A record that only says "it was done" is a violation. Always write the verification scope
+     (the coverage baseline and how many were verified).**
+     When something is carried over, write the count and the ledger IDs (write "none" if zero). -->
+
+| Declaration | Date | Round | Means | Verdict per lens (lost functionality / scope) | Verification scope (coverage baseline and count) | Send-backs | Carry-over (count and ledger IDs) |
+|-------------|------|-------|-------|----------------------------------------------|-------------------------------------------|------------|-----------------------------------|
+| completion declaration / feature exclusion (ADR-N) | | | | | | | |
+
+---
+
+## Negative Test Record
+
+<!-- NEGATIVE-TEST -->
+<!-- ↑ A machine-readable marker. Once the adaptation ledger's unaddressed count reaches zero,
+     `./verify.sh adaptation` reconciles **every perspective ID appearing in the ledger** against the
+     rows carrying a date in this section (CP-13). Do not delete the marker.
+
+     **"Zero findings" reads as "none exist" AND as "the detector cannot detect".** Until you break the
+     detector on purpose and confirm EXIT != 0 (or that the count rises), its detection power is unproven.
+
+     **Break it at the same analysis stage as the failure you are measuring.** To measure a compiler's
+     detection power, inject a **semantic error**, not a syntax error (a syntax error is reported at
+     parse time and proves nothing about reaching semantic analysis). For what to doubt, see the
+     checklist in CP-13.
+
+     **Write what you broke, how, and what came out — not "it was done".** A record that cannot be
+     reproduced is not a record.
+
+     Example (remove this comment when entering real data; rows inside a comment are not checked by the gate):
+     | MP-3 | 2026-01-01 | removed the trailing quantifier from the scan pattern and re-ran | EXIT=0 / 4 hits -> 0. Detected nothing = a defect in the detector. EXIT=1 after the fix | -->
+
+| Perspective ID | Date | How it was broken | What came out (EXIT / change in count) |
+|----------------|------|-------------------|---------------------------------------|
+| MP-N | | | |

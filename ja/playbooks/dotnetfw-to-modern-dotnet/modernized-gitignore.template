@@ -1,0 +1,52 @@
+# --- [port] build artifacts: .NET / MSBuild (このPlaybookのビルド成果物) ---
+# 大文字小文字の両方を書く。**移行先の Linux は大文字小文字を区別する**ため
+# bin/ だけでは Bin/ が漏れる（逆に Windows/macOS では同じものに見えて気づけない）。
+[Bb]in/
+[Oo]bj/
+[Dd]ebug/
+[Rr]elease/
+[Ll]og/
+[Ll]ogs/
+
+# NuGet
+packages/
+*.nupkg
+*.snupkg
+.nuget/
+
+# 発行成果物
+publish/
+[Pp]ublish[Oo]utput/
+*.publishsettings
+
+# 利用者/IDE 固有
+*.user
+*.suo
+*.userosscache
+*.sln.docstates
+.vs/
+.vscode/
+*.DotSettings.user
+
+# テスト・カバレッジ
+[Tt]est[Rr]esult*/
+coverage*.json
+coverage*.xml
+*.coverage
+*.trx
+
+# IaC（CDK 等）
+cdk.out/
+.cdk.staging/
+cdk.context.json
+
+# OS
+.DS_Store
+Thumbs.db
+
+# ⚠️ ignore してはならないもの（移行で消えると気づけない）
+#   - Migrations/          … EF Core の Migrations はソースである。ignore すると
+#                            スキーマ変更の履歴が失われ、期待リストの検査対象も消える
+#   - appsettings*.json    … 設定は成果物ではない。**ただしシークレットを入れないこと**
+#   - runtimes/            … ネイティブ依存の同梱物。bin/ 配下なので通常は ignore 対象だが、
+#                            期待リスト（build ゲート）では存在を検査する（→ verify-snippets.md §2）

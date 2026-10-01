@@ -1,0 +1,1001 @@
+#!/bin/bash
+# ai-modernization-flow <HARNESS_VERSION>
+# 生成元: install.sh がこの行にフレームワークの版を刻む。プロジェクトのゲートがどの版かを
+# 機械的に照合するための唯一の手がかりである（`install.sh --update-project` が読む）。書き換えない。
+# =============================================================================
+# 移行プロジェクト 検証ゲート (verify.sh)
+# =============================================================================
+#
+# 使い方:
+#   ./verify.sh              ← 全検証（build → smoke → integration [→ nonfunc]
+#                               → repo-sync → knowledge → adaptation → project）
+#   ./verify.sh build        ← 第1ゲート: 成果物の存在確認
+#   ./verify.sh smoke        ← 第2ゲート: 起動・基本動作
+#   ./verify.sh integration  ← 第3ゲート: 連携・E2E動作
+#   ./verify.sh nonfunc      ← 第4ゲート: 非機能（opt-in）
+#   ./verify.sh repo-sync    ← 第5ゲート: 記録リポジトリ＋実装ツリーの未コミット同期チェック
+#   ./verify.sh knowledge    ← 第6ゲート: 知見ファイルの量の規律
+#   ./verify.sh adaptation   ← 第7ゲート: 移行対応台帳（未対応件数・根拠・除外理由・否定テスト記録）
+#   ./verify.sh project      ← 第8ゲート: プロジェクト情報の出所（⟨inferred⟩ の残存）
+#   ./verify.sh assessment   ← Phase 0a 完了条件の機械確認
+#                               （all では Phase 0a 着手後にのみ自動実行される）
+#   ./verify.sh list         ← 期待リストの表示
+#   ./verify.sh status       ← ゲートの適用状態（work-plan の確定状況）の表示
+#
+# ゲートの適用条件:
+#   build / smoke / integration / nonfunc は **work-plan が確定してから**適用される。
+#   確定判定は work-plan.md 内の機械可読マーカー:
+#       <!-- WORK-PLAN-STATUS: DRAFT     -->  → 未確定。ゲートは「未適用」として exit 0
+#       <!-- WORK-PLAN-STATUS: CONFIRMED -->  → 確定。以降ゲートは本適用
+#   Phase 2 の Phaseゲート（HOLD-8）で work-plan を承認したら CONFIRMED に書き換える。
+#   確定済みなのに期待リストが空の場合は FAIL する（CP-7。「登録し忘れ」を通さない）。
+#   repo-sync は work-plan の状態に関わらず常に適用される（記録の規律は初日から効く）。
+#
+# 設定手順:
+#   1. <PLACEHOLDER> を実際の値に置換する
+#   2. ★ work-plan 確定時（初日）に、成功基準テーブルからスコープ内の
+#      「全成果物」を EXPECTED_ARTIFACTS に登録する（CP-7）。
+#      まだビルドできないものも先に登録する — 未登録の成果物は
+#      「ビルドされていない」事実そのものが検出されない。
+#   3. smoke / integration をプロジェクトに合わせて実装する
+#      （言語・ドメイン別の実装例: Playbook の verify-snippets.md）
+#      ★ smoke は Step 1 完了時に実装必須（未実装のまま Step 2 以降に進むのは禁止）
+#   4. 非機能を対象とした場合（Phase 1 の ADR 判断）のみ nonfunc を実装し、
+#      RUN_NONFUNC=1 にする
+#
+# 原則:
+#   - 「ビルド成功 ≠ 完了」を仕組みで強制する（CP-4）
+#   - 検証ゲート = 成功基準テーブルの全項目（CP-6）。手動チェックに頼らない
+#   - アドホックに作った検証スクリプトは 02-test/integration/ に置き、
+#     integration ゲートに昇格させる
+# =============================================================================
+set -uo pipefail
+
+# --- 設定 -------------------------------------------------------------------
+# 実装ツリー（本プロジェクトと同列の独立リポジトリ）。
+# 1システムが複数リポジトリで構成される場合は全て列挙する（repository-inventory.md と対応させる）。
+MODERNIZED_TREES=(
+  "../<PRODUCT>-modernized"
+  # "../<COMPONENT2>-modernized"
+)
+# 単一リポジトリ構成での短縮参照（EXPECTED_ARTIFACTS 等で使う）
+MODERNIZED="${MODERNIZED:-${MODERNIZED_TREES[0]}}"
+# ビルドコマンド（言語・ビルドシステムに応じて。例: make / mvn package / gradle build / npm run build）
+BUILD_CMD="${BUILD_CMD:-<BUILD_COMMAND>}"
+# 非機能ゲートの有効化（Phase 1 で「対象」と判断した場合のみ 1 にする）
+RUN_NONFUNC="${RUN_NONFUNC:-0}"
+# 作業計画（ゲート適用条件の判定に使う）
+WORK_PLAN="${WORK_PLAN:-01-plan/work-plan.md}"
+# セッションコンテキスト（未記録の未コミット変更の検出に使う）
+SESSION_CONTEXT="${SESSION_CONTEXT:-03-worklog/session-context.md}"
+WORKLOG="${WORKLOG:-03-worklog/worklog.md}"
+REPO_INVENTORY="${REPO_INVENTORY:-00-analysis/repository-inventory.md}"
+ANALYSIS_RUNS="${ANALYSIS_RUNS:-00-analysis/analysis-runs.md}"
+ANALYSIS_README="${ANALYSIS_README:-00-analysis/README.md}"
+# 診断コードマーカーの走査対象パス（実装ツリー内の相対パス。空なら全体を走査）
+DIAG_SCAN_PATHS=(
+  # "src"
+)
+# 記録リポジトリと実装ツリーの最終コミット時刻差の許容値（時間）。超過は同期漏れのシグナル
+SYNC_DIVERGENCE_HOURS="${SYNC_DIVERGENCE_HOURS:-4}"
+# 知見ファイルの量の規律（practices-common.md「量の規律」。0 で無効化）
+KNOWLEDGE_FILES=(
+  "docs/knowledge/practices-common.md"
+  "docs/knowledge/practices.md"
+  "docs/knowledge/lessons-learned.md"
+)
+KNOWLEDGE_MAX_SUMMARY_BYTES="${KNOWLEDGE_MAX_SUMMARY_BYTES:-300}"
+KNOWLEDGE_MAX_ENTRY_LINES="${KNOWLEDGE_MAX_ENTRY_LINES:-80}"
+KNOWLEDGE_MAX_ENTRIES="${KNOWLEDGE_MAX_ENTRIES:-15}"
+# 移行対応台帳（振る舞い側の網羅の基準。Phase 0b で作成し Phase 4 で未対応ゼロにする）
+ADAPTATION_LEDGER="${ADAPTATION_LEDGER:-01-plan/adaptation-ledger.md}"
+# 意思決定記録（独立検証と否定テストの実施記録の所在）
+DECISIONS_FILE="${DECISIONS_FILE:-docs/decisions/decisions.md}"
+# 実装ツリーのコミット済みコードに現れてはならないパターン（Playbook が定義する。空なら無効）
+# 意図せぬスタブ化・モック化の検出用。一時的なものには `// STUB-<id>:` を付ける
+FORBIDDEN_PATTERNS=(
+  # "not implemented"
+)
+# 禁止パターンの走査対象（実装ソースに絞る。テストは除外すること。空なら無効）
+FORBIDDEN_SCAN_PATHS=(
+  # "src/main"
+)
+# golden-path E2E（実ユーザー動線をブラウザで通すテスト）の登録を必須にするか。
+# UI描画型アプリでは 1 にする — 「例外なし・HTTP 200・画面が空」はここでしか捕まらない
+REQUIRE_GOLDEN_PATH="${REQUIRE_GOLDEN_PATH:-0}"
+GOLDEN_PATH_TESTS=(
+  # "02-test/integration/e2e-golden-path.sh"
+)
+# プロジェクト固有情報のファイル（ワークスペース側。出所マーカーの検査に使う）
+# --tool の選択により配置先が変わるため両方を候補にする。どちらも無ければ検査をスキップする
+PROJECT_FILES=(
+  "../.kiro/steering/migration-project.md"
+  "../CLAUDE.md"
+)
+
+# --- 期待リスト（CP-7: work-plan 確定時に「スコープ内全部」を登録する） ---
+# 成果物の種類は問わない（実行ファイル / .so / .jar / .war / dist/ 配下のファイル等）
+EXPECTED_ARTIFACTS=(
+  "$MODERNIZED/<path/to/artifact1>"
+  "$MODERNIZED/<path/to/artifact2>"
+)
+# --- 除外（理由は ADR / lessons-learned を参照して記載）---
+# <path/to/excluded>   → <理由（ADR-N）>
+
+# --- integration テスト（02-test/integration/*.sh を登録。rc=0 = PASS） ---
+INTEGRATION_TESTS=(
+  # "02-test/integration/<test1>.sh"
+  # "02-test/integration/<test2>.sh"
+)
+
+# --- ヘルパー ----------------------------------------------------------------
+PASS_COUNT=0; FAIL_COUNT=0
+# 実質性の集計。「8ゲート中6ゲートが未適用または検査対象なしで、実質2ゲート11件しか検査して
+# いないのに ALL VERIFICATION GATES PASSED と出る」状態を防ぐため、最終行に件数を添える。
+# 「PASSED」の語だけが独立して引用されると、検査の実質性が失われる。
+SUBSTANTIVE_GATES=0; NA_GATES=0; TOTAL_CHECKS=0
+pass() { echo "  ✅ $*"; PASS_COUNT=$((PASS_COUNT+1)); }
+fail() { echo "  ❌ $*"; FAIL_COUNT=$((FAIL_COUNT+1)); }
+gate_na() { NA_GATES=$((NA_GATES+1)); }
+gate_result() {  # $1=gate name
+  echo "  PASS: $PASS_COUNT  FAIL: $FAIL_COUNT"
+  if [ "$FAIL_COUNT" -gt 0 ]; then echo ""; echo "❌ Gate failed: $1"; exit 1; fi
+  if [ "$PASS_COUNT" -gt 0 ]; then
+    SUBSTANTIVE_GATES=$((SUBSTANTIVE_GATES+1)); TOTAL_CHECKS=$((TOTAL_CHECKS+PASS_COUNT))
+  else
+    gate_na
+  fi
+  PASS_COUNT=0; FAIL_COUNT=0
+}
+
+# work-plan が確定しているか（機械可読マーカーで判定）
+work_plan_confirmed() {
+  grep -q 'WORK-PLAN-STATUS:[[:space:]]*CONFIRMED' "$WORK_PLAN" 2>/dev/null
+}
+
+# --- 抽出器の共通部品（記録物からデータ行を取り出す） -------------------------
+# **抽出器を各ゲートで自作してはならない。** 記録物の走査は下の2本だけを使う。
+# 実測: HTMLコメントの除外を4箇所が別々に実装しており、うち3箇所が
+# `/<!--/ { inc=1 } inc { ...; next }` 形（行の途中に `<!--` を含むデータ行を丸ごと落とす）、
+# 1箇所は除外なしだった。同じクラスの誤爆が案件をまたいで繰り返し再発した。
+# 件数を数える処理自体が壊れると、ゲートは静かに「検査していない」状態になる。
+
+# HTMLコメントを除いた本文を返す（$1=ファイル）。行内コメント・複数行コメントの両方に対応し、
+# **コメント開始前の本文は残す**（データ行がコメントを含んでも行自体は失わない）。
+# **入力1行に対して必ず1行を出す**（コメント行は空行になる）。行番号を報告する検査でも
+# `NR` がずれないため、そのまま使える。
+strip_comments() {
+  awk '
+    { line = $0
+      if (inc) { if (line ~ /-->/) { sub(/^.*-->/, "", line); inc = 0 } else { print ""; next } }
+      while (match(line, /<!--.*-->/)) { sub(/<!--.*-->/, "", line) }
+      if (line ~ /<!--/) { sub(/<!--.*$/, "", line); inc = 1 }
+      print line
+    }
+  ' "$1" 2>/dev/null
+}
+
+# 機械可読マーカー以降、**次の H2 見出しまで**の表の行を返す（$1=ファイル $2=マーカー）。
+# マーカー行自身が HTMLコメントなので、除去より先に判定する（除去後は空行になる）。
+# マーカー直後の説明コメント内の記載例は、コメントとして落ちる（落とし穴7）。
+# 見出しで閉じないと隣の節の表まで数えてしまう（独立検証の記録が否定テストの記録を数えていた）。
+marker_rows() {
+  awk -v marker="$2" '
+    /^##[[:space:]]/ { inSec = 0 }
+    index($0, marker) { inSec = 1 }
+    { line = $0
+      if (inc) { if (line ~ /-->/) { sub(/^.*-->/, "", line); inc = 0 } else next }
+      while (match(line, /<!--.*-->/)) { sub(/<!--.*-->/, "", line) }
+      if (line ~ /<!--/) { sub(/<!--.*$/, "", line); inc = 1 }
+      if (inSec && line ~ /^\|/) print line
+    }
+  ' "$1" 2>/dev/null
+}
+
+# 未確定なら「未適用」として抜ける（呼び出し側は戻り値 0 で return する）
+skip_if_plan_unconfirmed() {
+  if work_plan_confirmed; then return 1; fi
+  echo "  ⏸️  未適用: work-plan が未確定（${WORK_PLAN}）"
+  echo "     Phase 2 の Phaseゲートで承認したら WORK-PLAN-STATUS を CONFIRMED に書き換える"
+  gate_na
+  return 0
+}
+
+# --- 第1ゲート: 成果物の存在確認 ---------------------------------------------
+gate_build() {
+  echo "=== Gate 1: Build Verification ==="
+  if skip_if_plan_unconfirmed; then return 0; fi
+  if [ "${#EXPECTED_ARTIFACTS[@]}" -eq 0 ]; then
+    fail "work-plan is CONFIRMED but the expected list is empty (CP-7 violation)"
+    echo "      → 成功基準テーブルのスコープ内全成果物を EXPECTED_ARTIFACTS に登録すること。"
+    echo "        未登録の成果物は「ビルドされていない」事実そのものが検出されない。"
+    gate_result "build"
+    return 0
+  fi
+  echo "  Total expected: ${#EXPECTED_ARTIFACTS[@]}"
+  for f in "${EXPECTED_ARTIFACTS[@]}"; do
+    if [ -e "$f" ]; then PASS_COUNT=$((PASS_COUNT+1)); else fail "missing: $f"; fi
+  done
+  [ "$FAIL_COUNT" -eq 0 ] && echo "  ✅ All artifacts present"
+  gate_result "build"
+}
+
+# --- 第2ゲート: スモークテスト（起動・基本動作。1項目あたり数秒） --------------
+# ★ プロジェクトに合わせて実装する。実装例: Playbook の verify-snippets.md
+#   - CLI: --help / --version が rc=0
+#   - デーモン/サーバー: 起動して数秒生存、ポート応答
+#   - ライブラリ/モジュール: ロード・依存解決の確認
+gate_smoke() {
+  echo "=== Gate 2: Smoke Test ==="
+  if skip_if_plan_unconfirmed; then return 0; fi
+  echo "  ⚠️  smoke gate is not implemented yet."
+  echo "     Step 1 完了時に実装すること（Playbook の verify-snippets.md 参照）"
+  exit 1
+}
+
+# --- 第3ゲート: 統合テスト（連携・E2E動作） -----------------------------------
+gate_integration() {
+  echo "=== Gate 3: Integration Test ==="
+  if skip_if_plan_unconfirmed; then return 0; fi
+  if [ "$REQUIRE_GOLDEN_PATH" = "1" ] && [ "${#GOLDEN_PATH_TESTS[@]}" -eq 0 ]; then
+    fail "REQUIRE_GOLDEN_PATH=1 but no GOLDEN_PATH_TESTS are registered"
+    echo "      → 実ユーザー動線をブラウザで通す E2E を登録すること。"
+    echo "        build/smoke/unit は「起動して例外が出ないこと」しか見ないため、"
+    echo "        「例外なし・HTTP 200・画面が空」というサイレント障害を検出できない。"
+  fi
+  if [ "${#INTEGRATION_TESTS[@]}" -eq 0 ] && [ "${#GOLDEN_PATH_TESTS[@]}" -eq 0 ]; then
+    echo "  （登録テストなし — 各Stepで 02-test/integration/ に追加し登録する）"
+    gate_result "integration"
+    return 0
+  fi
+  for t in ${GOLDEN_PATH_TESTS[@]+"${GOLDEN_PATH_TESTS[@]}"}; do
+    if [ ! -f "$t" ]; then fail "missing golden-path: $t"; continue; fi
+    if bash "$t"; then pass "golden-path: $t"; else fail "golden-path: $t"; fi
+  done
+  for t in ${INTEGRATION_TESTS[@]+"${INTEGRATION_TESTS[@]}"}; do
+    if [ ! -f "$t" ]; then fail "missing: $t"; continue; fi
+    if bash "$t"; then pass "$t"; else fail "$t"; fi
+  done
+  gate_result "integration"
+}
+
+# --- 第4ゲート: 非機能テスト（opt-in — Phase 1 のADR判断で「対象」の場合のみ） --
+gate_nonfunc() {
+  echo "=== Gate 4: Non-functional Test ==="
+  if skip_if_plan_unconfirmed; then return 0; fi
+  echo "  ⚠️  nonfunc gate is not implemented."
+  echo "     Phase 1 で対象とした項目（性能/リーク等）を実装すること"
+  echo "     （長時間試験はAIがバックグラウンド実行＋ログ監視で対応可。実行主体はPhase 1-2で判断）"
+  exit 1
+}
+
+# --- 第5ゲート: リポジトリ同期（2リポジトリ運用の規律。step完了時・session末尾に実行） ---
+# 記録リポジトリと全実装ツリーのいずれかに未コミット変更があれば FAIL。
+# 「着手時に記録を開き、WIP を小刻みにコミットする」規律（core / skills/migration-troubleshooting）と
+# 合わせて、未記録の未コミット変更・片側リポジトリの記録漏れを機械的に塞ぐ。
+# work-plan の確定状態に関わらず常に適用する（記録の規律は初日から効く）。
+gate_repo_sync() {
+  echo "=== Gate 5: Repository Sync Check ==="
+  local mig_dirty mig_ts found tree
+  mig_dirty="$(git status --short 2>/dev/null)"
+  if [ -n "$mig_dirty" ]; then
+    fail "records repository has uncommitted changes:"
+    echo "$mig_dirty" | sed 's/^/      /'
+  else
+    pass "records repository is clean"
+  fi
+  mig_ts="$(git log -1 --format=%ct 2>/dev/null || echo 0)"
+
+  found=0
+  for tree in "${MODERNIZED_TREES[@]}"; do
+    if [ ! -d "$tree/.git" ]; then
+      # Phase 3 Step 1 以前は実装ツリーが存在しないのが正常。
+      # work-plan 確定後に存在しないのは規律違反。
+      if work_plan_confirmed; then
+        fail "modernized tree not found: $tree (must exist once the work-plan is CONFIRMED)"
+      else
+        echo "  ⏸️  未作成: ${tree}（Phase 3 Step 1 の setup-modernized.sh で作成）"
+      fi
+      continue
+    fi
+    found=$((found+1))
+    check_one_tree "$tree" "$mig_ts"
+  done
+  if [ "$found" -eq 0 ]; then
+    echo "  （実装ツリー未作成のため、記録リポジトリのみ検査した）"
+  fi
+  gate_result "repo-sync"
+}
+
+# 実装ツリー1本の検査。$1=実装ツリーのパス, $2=記録リポジトリの最終コミット時刻(epoch)
+check_one_tree() {
+  local tree="$1" mig_ts="$2"
+  local dirty wt_section diag_committed stub_committed forbidden_hits pat hit tree_ts diff_sec
+
+  dirty="$(cd "$tree" && git status --short 2>/dev/null)"
+  if [ -n "$dirty" ]; then
+    fail "$tree has uncommitted changes:"
+    echo "$dirty" | sed 's/^/      /'
+
+    # dirty なら、着手時に書いた宣言が必須（中断耐性の規律）。
+    # **実日付を含む宣言行**を要求する。文字列がどこかにあることを条件にすると別文脈の一致で
+    # 空虚に合格し、雛形のプレースホルダも通ってしまう。
+    # 接触前に止めるのは preToolUse hook 側（install.sh --work-guard）。ここは事後確認である。
+    wt_section="$(awk '/In-progress Investigation \/ Working-tree State/{f=1;next} /^## /{f=0} f' "$SESSION_CONTEXT" 2>/dev/null)"
+    if echo "$wt_section" | grep -qE 'This turn \([0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]T[0-9][0-9]:[0-9][0-9]:[0-9][0-9]'; then
+      pass "$tree is dirty, and session-context carries a dated 'This turn' declaration"
+    else
+      fail "$tree has uncommitted changes but session-context has no dated 'This turn (<T_prompt>)' declaration"
+      echo "      → 作業ツリーに編集を残す前に、そのターンの宣言を1行書くこと"
+      echo "        (skills/migration-troubleshooting)。無記録の未コミット変更は中断時に手戻りを生む。"
+      echo "        行の生成: ./03-worklog/turn-report.sh --declare"
+    fi
+  else
+    pass "$tree is clean"
+  fi
+
+  # コミット済みコードに DIAG- マーカーが残っていないか。
+  # DIAG- は一時診断コード専用で、修正確定・コミット前に必ず revert されるべきもの。
+  if [ "${#DIAG_SCAN_PATHS[@]}" -eq 0 ]; then
+    diag_committed="$(cd "$tree" && git grep -nE 'DIAG-[0-9A-Za-z_]' HEAD 2>/dev/null)"
+  else
+    diag_committed="$(cd "$tree" && git grep -nE 'DIAG-[0-9A-Za-z_]' HEAD -- "${DIAG_SCAN_PATHS[@]}" 2>/dev/null)"
+  fi
+  if [ -n "$diag_committed" ]; then
+    fail "committed code in $tree contains DIAG- markers (diagnostic residue must be reverted):"
+    echo "$diag_committed" | sed 's/^/      /' | head -20
+  else
+    pass "no DIAG- markers in committed code in $tree"
+  fi
+
+  # コミット済みコードに STUB- マーカーが残っていないか。
+  # STUB- は一時的なスタブ・モック・無効化の目印であり、確定前に必ず解消されるべきもの。
+  # 「意図せず機能をモック化して最後まで気づかない」事故を機械的に塞ぐ。
+  if [ "${#DIAG_SCAN_PATHS[@]}" -eq 0 ]; then
+    stub_committed="$(cd "$tree" && git grep -nE 'STUB-[0-9A-Za-z_]' HEAD 2>/dev/null)"
+  else
+    stub_committed="$(cd "$tree" && git grep -nE 'STUB-[0-9A-Za-z_]' HEAD -- "${DIAG_SCAN_PATHS[@]}" 2>/dev/null)"
+  fi
+  if [ -n "$stub_committed" ]; then
+    fail "committed code in $tree contains STUB- markers (unresolved stub/mock/disabled feature):"
+    echo "$stub_committed" | sed 's/^/      /' | head -20
+    echo "      → 機能を落としたまま完了にしないこと。恒久的な除外なら HOLD-1 として"
+    echo "        ADR を書き、移行対応台帳の処理区分を「対象外（理由必須）」にする。"
+  else
+    pass "no STUB- markers in committed code in $tree"
+  fi
+
+  # 禁止パターン（Playbook 定義）がコミット済みコードに現れていないか。
+  # STUB- マーカーを付け忘れた意図せぬスタブ化を拾うための二重目の網。
+  if [ "${#FORBIDDEN_PATTERNS[@]}" -gt 0 ]; then
+    forbidden_hits=""
+    for pat in "${FORBIDDEN_PATTERNS[@]}"; do
+      if [ "${#FORBIDDEN_SCAN_PATHS[@]}" -eq 0 ]; then
+        hit="$(cd "$tree" && git grep -niE "$pat" HEAD 2>/dev/null)"
+      else
+        hit="$(cd "$tree" && git grep -niE "$pat" HEAD -- "${FORBIDDEN_SCAN_PATHS[@]}" 2>/dev/null)"
+      fi
+      if [ -n "$hit" ]; then forbidden_hits="${forbidden_hits}${hit}
+"; fi
+    done
+    if [ -n "$forbidden_hits" ]; then
+      fail "committed code in $tree matches a forbidden pattern:"
+      echo "$forbidden_hits" | sed 's/^/      /' | head -20
+    else
+      pass "no forbidden patterns in committed code in $tree"
+    fi
+  fi
+
+  # 記録リポジトリと実装ツリーで最終コミット時刻が大きく離れていないか。
+  # 「片方だけコミットが進み、他方が置き去りにされている」ことの検出。
+  # 調査のみでコード変更がないセッションでは正当に離れるため、session-context に
+  # 理由を明記すれば許容する（記録があれば通す＝未記録 dirty の検査と同じ設計）。
+  tree_ts="$(cd "$tree" && git log -1 --format=%ct 2>/dev/null || echo 0)"
+  if [ "$mig_ts" != 0 ] && [ "$tree_ts" != 0 ]; then
+    if [ "$tree_ts" -gt "$mig_ts" ]; then diff_sec=$((tree_ts - mig_ts)); else diff_sec=$((mig_ts - tree_ts)); fi
+    if [ "$diff_sec" -gt $((SYNC_DIVERGENCE_HOURS * 3600)) ]; then
+      if grep -q 'REPO-SYNC-DIVERGENCE-OK' "$SESSION_CONTEXT" 2>/dev/null; then
+        pass "commit timestamp divergence for $tree: $((diff_sec/3600))h (reason recorded in session-context)"
+      else
+        fail "last commit timestamps diverge by $((diff_sec/3600))h between records repo and $tree (allowed: ${SYNC_DIVERGENCE_HOURS}h)"
+        echo "      → 片方だけコミットが進んでいる可能性がある。両方を揃えてコミットすること。"
+        echo "        正当な理由がある場合（調査のみでコード変更なし等）は session-context に"
+        echo "        <!-- REPO-SYNC-DIVERGENCE-OK: <理由> --> を記載する。"
+      fi
+    else
+      pass "commit timestamps in sync for $tree (diff: $((diff_sec/60))min)"
+    fi
+  fi
+}
+
+# --- 第6ゲート: 知見の量の規律（practices-common.md「量の規律」の機械検査） ---
+# 散文のルールは自己申告で素通りするため、量は数値で縛りゲートで検査する。
+# エントリ数の超過は「統合を強制する」トリガー。統合しない判断をした場合は
+# ファイル冒頭に KNOWLEDGE-REVIEWED を記録すれば通る（記録なき超過だけを弾く）。
+# work-plan の確定状態に関わらず常に適用する（知見は Phase 0 から溜まり始める）。
+gate_knowledge() {
+  echo "=== Gate 6: Knowledge Volume Discipline ==="
+  local f found
+  found=0
+  for f in "${KNOWLEDGE_FILES[@]}"; do
+    if [ ! -f "$f" ]; then continue; fi
+    found=$((found+1))
+    check_knowledge_file "$f"
+  done
+  if [ "$found" -eq 0 ]; then
+    echo "  （知見ファイルが未配置のためスキップした）"
+  fi
+  gate_result "knowledge"
+}
+
+# 知見ファイル1本の検査。$1=ファイルパス
+check_knowledge_file() {
+  local f="$1"
+  local long_summary long_body entries reviewed
+
+  # サマリ表の1行が長すぎないか（一言に収まらない内容は本文へ）
+  # HTMLコメント内は数えない。雛形の記載例がコメント内にあるため、数えると新規インストール時点で
+  # 「エントリがある」ことになり検査が無意味になる（落とし穴7）。
+  long_summary=""
+  if [ "$KNOWLEDGE_MAX_SUMMARY_BYTES" -gt 0 ]; then
+    long_summary="$(strip_comments "$f" | LC_ALL=C awk -v lim="$KNOWLEDGE_MAX_SUMMARY_BYTES" '
+      /^\|[[:space:]]*(CP|DP|LL)-/ { if (length($0) > lim) printf "      line %d: %d bytes\n", NR, length($0) }')"
+  fi
+  if [ -n "$long_summary" ]; then
+    fail "$f: summary row exceeds ${KNOWLEDGE_MAX_SUMMARY_BYTES} bytes"
+    echo "$long_summary"
+  else
+    pass "$f: summary rows within limit"
+  fi
+
+  # 1エントリの本文が長すぎないか（詳細は docs/reference/ へ分離する）
+  long_body=""
+  if [ "$KNOWLEDGE_MAX_ENTRY_LINES" -gt 0 ]; then
+    long_body="$(strip_comments "$f" | LC_ALL=C awk -v lim="$KNOWLEDGE_MAX_ENTRY_LINES" '
+      /^##+ (CP|DP|LL)-/ {
+        if (start > 0 && NR - start > lim) printf "      %s (%d lines)\n", title, NR - start
+        start = NR; title = $0
+      }
+      END { if (start > 0 && NR - start + 1 > lim) printf "      %s (%d lines)\n", title, NR - start + 1 }')"
+  fi
+  if [ -n "$long_body" ]; then
+    fail "$f: entry body exceeds ${KNOWLEDGE_MAX_ENTRY_LINES} lines (split the detail into docs/reference/)"
+    echo "$long_body"
+  else
+    pass "$f: entry bodies within limit"
+  fi
+
+  # エントリ数の上限。超過は統合のトリガー。記録があれば許容する。
+  # 見出しレベルは H2/H3 の双方を受ける（`^##+`）。雛形の追記ルールとゲートのどちらが正でも
+  # 動くようにするため。`^## ` 固定だと、`### LL-N` と書いた lessons-learned が
+  # 「0 entries」と報告され、量の規律が丸ごと無効化される（空虚な合格）。
+  entries="$(strip_comments "$f" | LC_ALL=C awk '
+    /^##+ (CP|DP|LL)-/ { c++ } END { print c+0 }' 2>/dev/null || true)"
+  [ -n "$entries" ] || entries=0
+  if [ "$KNOWLEDGE_MAX_ENTRIES" -gt 0 ] && [ "$entries" -gt "$KNOWLEDGE_MAX_ENTRIES" ]; then
+    # 語の存在では判定しない。雛形と本文の「量の規律」の説明文にも KNOWLEDGE-REVIEWED の語が
+    # 現れるため、それでは上限超過が永久に通ってしまう（落とし穴7: 検査するマーカーを雛形に入れると
+    # 検査が無意味になる）。**実日付を含む正規の HTML コメント形式**を要求する。
+    reviewed="$(LC_ALL=C grep -cE '<!--[[:space:]]*KNOWLEDGE-REVIEWED:[[:space:]]*[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]' "$f" 2>/dev/null || true)"
+    [ -n "$reviewed" ] || reviewed=0
+    if [ "$reviewed" -gt 0 ]; then
+      pass "$f: $entries entries (over ${KNOWLEDGE_MAX_ENTRIES}, but KNOWLEDGE-REVIEWED is recorded)"
+    else
+      fail "$f: $entries entries exceeds ${KNOWLEDGE_MAX_ENTRIES} and no KNOWLEDGE-REVIEWED record"
+      echo "      → 統合・削除を検討すること。統合しない判断をする場合はファイル冒頭に記録する:"
+      echo "        <!-- KNOWLEDGE-REVIEWED: YYYY-MM-DD (N entries, consolidation deferred: <理由>) -->"
+    fi
+  elif [ "$entries" -eq 0 ]; then
+    echo "  ⚠️  ${f}: 0 entries — 検査対象が見つからなかった"
+    echo "      追記形式が H2（## CP-N: / ## DP-N: / ## LL-N:）になっているか確認すること。"
+    echo "      0件は「基準を満たした」ではなく「見つからなかった」可能性が高い。"
+  else
+    pass "$f: $entries entries within limit"
+  fi
+}
+
+# --- 第7ゲート: 移行対応台帳（移行作業側の網羅の基準） ---------------
+# 期待リスト（build ゲート）は「あるべき成果物」を数えるが、既に存在する成果物の【中で】
+# 直し忘れた箇所は検出できない。移行対応台帳がその穴を埋める。
+# 網羅の基準は Playbook の観点表のうち対象に該当する観点であり（1行 = 1観点）、コードの走査ヒット数では
+# ない（ビルドが列挙する観点を先取りしても価値がなく、単位が混在して算術も成立しない）。
+# どの観点を採用したかは移行の性質で変わるので、【どの観点を採用したかを書くこと】を要求する（CP-11）。
+# 未対応ゼロ＝完了宣言に相当するため、そのときだけ独立検証の記録と、
+# 対応済・代替実装の各行の否定テスト記録を要求する（CP-13。「0件」は「検出できていない」とも読める）。
+gate_adaptation() {
+  echo "=== Gate 7: Adaptation Ledger ==="
+  local pop rows missing_evidence missing_reason unaddressed indep
+  local covered missing_negative p
+  if [ ! -f "$ADAPTATION_LEDGER" ]; then
+    if work_plan_confirmed; then
+      fail "adaptation ledger not found: $ADAPTATION_LEDGER"
+    else
+      echo "  ⏸️  未作成: ${ADAPTATION_LEDGER}（Phase 0b で観点を選び、Phase 2 で行を起こす）"
+    fi
+    gate_result "adaptation"
+    return 0
+  fi
+
+  # 網羅の基準の定義。移行の性質で変わるので、選択そのものを記録させる（CP-11）
+  pop="$(population_defined)"
+  if [ -n "$pop" ]; then
+    pass "population defined: $pop"
+  elif work_plan_confirmed; then
+    fail "$ADAPTATION_LEDGER: population is not defined"
+    echo "      → 網羅の基準は観点表から採用する。採用した観点の件数を1行で記録すること（CP-11）:"
+    echo "        <!-- POPULATION-DEFINED: perspectives=9 (silent=6 misleading=3) excluded=4 -->"
+  else
+    echo "  ⏸️  網羅の基準の定義が未記入（Phase 0b で確定させる。CP-11）"
+  fi
+
+  rows="$(ledger_rows | wc -l | tr -d ' ')"
+  if [ "$rows" -eq 0 ]; then
+    if work_plan_confirmed; then
+      fail "$ADAPTATION_LEDGER has no rows (Phase 2 must open them from the population)"
+    else
+      echo "  ⏸️  未記入: ${ADAPTATION_LEDGER}（Phase 2 で work-plan と同時に起こす）"
+    fi
+    gate_result "adaptation"
+    return 0
+  fi
+  pass "$ADAPTATION_LEDGER: $rows rows"
+
+  # 根拠（path:line）のない行を残さない（CP-3。AIの要約だけを根拠にしない）
+  missing_evidence="$(ledger_rows | awk -F'|' '{ e=$5; gsub(/^[ \t]+|[ \t]+$/,"",e); if (e == "") printf "      %s\n", $2 }')"
+  if [ -n "$missing_evidence" ]; then
+    fail "$ADAPTATION_LEDGER: rows without evidence (path:line)"
+    echo "$missing_evidence"
+  else
+    pass "all rows carry evidence"
+  fi
+
+  # 対応不要・代替実装には理由が必須。もれを不可視にしない
+  missing_reason="$(ledger_rows | awk -F'|' '
+    { d=$6; r=$7; gsub(/^[ \t]+|[ \t]+$/,"",d); gsub(/^[ \t]+|[ \t]+$/,"",r)
+      if (d ~ /(対応不要|not_required|代替実装|replaced)/ && r == "") printf "      %s (%s)\n", $2, d }')"
+  if [ -n "$missing_reason" ]; then
+    fail "$ADAPTATION_LEDGER: not_required / replaced rows without a reason or ADR"
+    echo "$missing_reason"
+  else
+    pass "not_required and replaced rows carry a reason"
+  fi
+
+  # 未対応件数の報告。Phase 3 の途中は 0 でなくて当然なので FAIL にしない
+  unaddressed="$(ledger_rows | awk -F'|' '{ d=$6; gsub(/^[ \t]+|[ \t]+$/,"",d); if (d ~ /(未対応|unaddressed)/) c++ } END { print c+0 }')"
+  echo "  ℹ️  未対応件数: $unaddressed / ${rows}（Phase 4 の完了条件はゼロ）"
+
+  # 未対応ゼロ＝完了宣言に相当。ここで独立検証の記録と、否定テストの記録を要求する
+  if [ "$unaddressed" -eq 0 ]; then
+    indep="$(independent_verification_rows | wc -l | tr -d ' ')"
+    if [ "$indep" -gt 0 ]; then
+      pass "unaddressed count is zero and an independent-verification record exists"
+    else
+      fail "unaddressed count is zero but no INDEPENDENT-VERIFICATION record in $DECISIONS_FILE"
+      echo "      → 未対応ゼロは完了宣言に相当する。生成者の自己申告で確定してはならない。"
+      echo "        skills/migration-adversarial-review に従って独立検証を実施し、記録を残すこと。"
+    fi
+
+    # 検出器の否定テスト（CP-13）。「0件」を対応済の根拠にする前に、検出できることを示させる。
+    # 対応済・代替実装の行だけを対象にする（対応不要は理由で既に縛られている）。
+    covered=" $(negative_test_ids | tr '\n' ' ')"
+    missing_negative=""
+    for p in $(ledger_detector_ids); do
+      case "$covered" in
+        *" $p "*) ;;
+        *) missing_negative="$missing_negative $p" ;;
+      esac
+    done
+    if [ -n "$missing_negative" ]; then
+      fail "unaddressed count is zero but these ledger rows have no NEGATIVE-TEST record:$missing_negative"
+      echo "      → 「0件」は「無い」とも「検出できていない」とも読める（CP-13）。検出器を意図的に"
+      echo "        壊して EXIT≠0 を確認し、$DECISIONS_FILE の「否定テストの記録」節に残すこと。"
+      echo "        測りたい失敗と同じ解析段階で壊す（コンパイラなら構文エラーではなく意味エラー）。"
+    else
+      pass "every addressed ledger row carries a negative-test record"
+    fi
+  fi
+  gate_result "adaptation"
+}
+
+# 網羅の基準の定義マーカーの内容を返す（無ければ何も出力しない）。
+# 雛形には説明用の例だけを置き実マーカーは入れないため、正規の HTML コメント形式のみを拾う
+# （雛形の例はハイフンを離してあるので一致しない。落とし穴7の回避）。
+population_defined() {
+  grep -oE '<!--[[:space:]]*POPULATION-DEFINED:[^>]*-->' "$ADAPTATION_LEDGER" 2>/dev/null \
+    | head -1 | sed -E 's/^<!--[[:space:]]*POPULATION-DEFINED:[[:space:]]*//; s/[[:space:]]*-->$//'
+}
+
+# 移行対応台帳のデータ行だけを取り出す（HTMLコメント内と区切り行は除外する）
+ledger_rows() {
+  strip_comments "$ADAPTATION_LEDGER" | awk '/^\|[[:space:]]*AP-[0-9]/ { print }'
+}
+
+# 「独立検証の記録」節に実際に記録された行を数える（節の存在ではなく記録の実体を見る）。
+# 実施日（YYYY-MM-DD）を含む表の行を1件の記録として数える。
+independent_verification_rows() {
+  marker_rows "$DECISIONS_FILE" "INDEPENDENT-VERIFICATION" \
+    | awk '/[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]/ { print }'
+}
+
+# 否定テストを要求する台帳行の識別子を返す（CP-13）。
+# 対象は【対応済・代替実装】の行だけ。0件を根拠に「直った」と言うのはこの2区分であり、
+# 対応不要は理由の必須化で既に縛られている。観点 ID があればそれ、無ければ行 ID を返す
+# （観点表に無い発見も起票できるため。CP-11）。
+ledger_detector_ids() {
+  ledger_rows | awk -F'|' '
+    { d=$6; gsub(/^[ \t]+|[ \t]+$/,"",d)
+      if (d ~ /(未対応|unaddressed)/) next
+      if (d !~ /(対応済|実装済|addressed|代替実装|replaced)/) next
+      p=$3; gsub(/[^A-Za-z0-9-]/,"",p)
+      if (p ~ /^MP-[0-9]+$/) { print p; next }
+      r=$2; gsub(/[^A-Za-z0-9-]/,"",r)
+      if (r != "") print r
+    }' | sort -u
+}
+
+# 「否定テストの記録」節が実際に記録している識別子を返す（節の存在ではなく記録の実体を見る）。
+# 実施日（YYYY-MM-DD）を伴う行だけを数え、HTMLコメント内の記載例は除外する（落とし穴7）。
+negative_test_ids() {
+  marker_rows "$DECISIONS_FILE" "NEGATIVE-TEST" | awk -F'|' '
+    /[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]/ {
+      p=$2; gsub(/[^A-Za-z0-9-]/,"",p)
+      if (p ~ /^(MP|AP)-[0-9]+$/) print p
+    }' | sort -u
+}
+
+# --- 第8ゲート: プロジェクト情報の出所（⟨inferred⟩ を前提に使わせない） ---------
+# 起動インタビューでAIが推定した値には ⟨inferred⟩、利用者が確定した値には ⟨confirmed⟩ が付く。
+# ⟨inferred⟩ は仮説であり（CP-3）、ADR や work-plan の前提に使ってはならない。
+# work-plan は推定値の上に立つため、**確定した時点で ⟨inferred⟩ が残っていてはならない**。
+# work-plan 未確定のうちは残っていて当然なので件数の報告に留める。
+gate_project() {
+  echo "=== Gate 8: Project Information Provenance ==="
+  local f found
+  found=0
+  for f in "${PROJECT_FILES[@]}"; do
+    if [ ! -f "$f" ]; then continue; fi
+    found=$((found+1))
+    check_project_file "$f"
+  done
+  if [ "$found" -eq 0 ]; then
+    echo "  ⏸️  未適用: プロジェクト情報ファイルが見つからない（PROJECT_FILES を確認）"
+  fi
+  gate_result "project"
+}
+
+# プロジェクト情報ファイル1本の検査。$1=ファイルパス
+check_project_file() {
+  local f="$1"
+  local inferred markers waived
+
+  # HTMLコメント（マーカーの説明文自体が ⟨inferred⟩ を含む）を除いて数える
+  inferred="$(project_fields "$f" | LC_ALL=C grep -c '⟨inferred⟩' || true)"
+  [ -n "$inferred" ] || inferred=0
+  markers="$(project_fields "$f" | LC_ALL=C grep -cE '⟨(inferred|confirmed)⟩' || true)"
+  [ -n "$markers" ] || markers=0
+
+  # 必須入力は ATX の前提になるため、Phase 0a 着手時点で確定していなければならない
+  if phase0a_started; then check_mandatory_inputs "$f"; fi
+
+  if ! work_plan_confirmed; then
+    if [ "$inferred" -gt 0 ]; then
+      echo "  ⚠️  ${f}: ⟨inferred⟩ ${inferred} 件 — AI の推定値であり仮説である（CP-3）"
+      echo "      ADR や work-plan の前提に使ってはならない。Phase 0b までに ⟨confirmed⟩ にすること。"
+      echo "      （work-plan 未確定のため FAIL にはしない）"
+    else
+      echo "  ℹ️  ${f}: ⟨inferred⟩ なし（work-plan 未確定のため未適用）"
+    fi
+    return 0
+  fi
+
+  # マーカーが1つもない = 出所を検証できない。手で削除された
+  if [ "$markers" -eq 0 ]; then
+    fail "$f: no provenance markers found (cannot verify whether values are confirmed)"
+    echo "      → マーカーが削除された可能性がある。雛形に倣い、"
+    echo "        必須入力に ⟨confirmed⟩ / 導出情報に ⟨inferred⟩ を付けること。"
+    return 0
+  fi
+
+  if [ "$inferred" -eq 0 ]; then
+    pass "$f: no ⟨inferred⟩ values remain"
+    return 0
+  fi
+
+  # 残っていても理由が記録されていれば通す（記録なき残存だけを弾く）
+  waived="$(grep -c 'INFERRED-REMAINS-OK' "$f" 2>/dev/null || true)"
+  [ -n "$waived" ] || waived=0
+  if [ "$waived" -gt 0 ]; then
+    pass "$f: ${inferred} ⟨inferred⟩ value(s) remain, but INFERRED-REMAINS-OK is recorded"
+  else
+    fail "$f: ${inferred} ⟨inferred⟩ value(s) remain after the work-plan was confirmed"
+    project_fields "$f" | LC_ALL=C grep -n '⟨inferred⟩' | sed 's/^/      /' | head -10
+    echo "      → ⟨inferred⟩ は AI の推定値であり仮説である（CP-3）。work-plan の前提に使ってはならない。"
+    echo "        分析結果で確定した値に置き換え ⟨confirmed⟩ にすること。確定できない項目は"
+    echo "        当該ファイルに理由を記録すれば通る:"
+    echo "        <!-- INFERRED-REMAINS-OK: <項目名> — <確定できない理由> -->"
+  fi
+}
+
+# 必須入力節に ⟨inferred⟩ が残っていないかを検査する。$1=ファイルパス
+check_mandatory_inputs() {
+  local n
+  n="$(mandatory_fields "$1" | LC_ALL=C grep -c '⟨inferred⟩' || true)"
+  [ -n "$n" ] || n=0
+  if [ "$n" -eq 0 ]; then
+    pass "$1: mandatory input confirmed"
+  elif grep -q 'INFERRED-REMAINS-OK' "$1" 2>/dev/null; then
+    pass "$1: ${n} mandatory input(s) ⟨inferred⟩, but INFERRED-REMAINS-OK is recorded"
+  else
+    fail "$1: ${n} mandatory input(s) still ⟨inferred⟩ after Phase 0a started"
+    mandatory_fields "$1" | LC_ALL=C grep '⟨inferred⟩' | sed 's/^/      /'
+    echo "      → 利用者に確認して ⟨confirmed⟩ にする（未定なら「未定」と答えてもらう）"
+  fi
+}
+
+# 「必須入力」節のフィールド行だけを取り出す
+mandatory_fields() {
+  strip_comments "$1" | awk '/^#+ /{ s = ($0 ~ /必須入力|Mandatory input/) } s && /^- \*\*/'
+}
+
+# Phase 0a に着手済みか（git 状態か分析実行の記録が1行以上ある）。0a-3 から真になる
+phase0a_started() {
+  [ -f "$ANALYSIS_RUNS" ] || return 1
+  [ -n "$(section_rows "$ANALYSIS_RUNS" 'git 状態の記録|Git state|分析実行の記録|Analysis runs')" ]
+}
+
+# 出所マーカーの検査対象となる「フィールド行」だけを取り出す。
+# 対象は `- **項目名:** 値 ⟨marker⟩` 形式の箇条書きのみ。
+# コア規律の散文もマーカーに言及するため（CLAUDE.md は両者を連結する）、行の形で絞る必要がある。
+# マーカーの説明文自体が ⟨inferred⟩ を含むため、コメントを数えると確定後も永久に FAIL する。
+project_fields() {
+  strip_comments "$1" | grep -E '^- \*\*'
+}
+
+# --- ユーティリティ -----------------------------------------------------------
+do_list() {
+  echo "=== Expected Artifacts ==="
+  if [ "${#EXPECTED_ARTIFACTS[@]}" -eq 0 ]; then
+    echo "  （未登録）"
+  else
+    for f in "${EXPECTED_ARTIFACTS[@]}"; do echo "  $f"; done
+  fi
+}
+
+do_status() {
+  local tree
+  echo "=== Gate Applicability ==="
+  if work_plan_confirmed; then
+    echo "  work-plan: CONFIRMED（${WORK_PLAN}）→ build/smoke/integration/nonfunc を本適用"
+  else
+    echo "  work-plan: DRAFT（${WORK_PLAN}）→ build/smoke/integration/nonfunc は未適用"
+  fi
+  echo "  期待リスト: ${#EXPECTED_ARTIFACTS[@]} 件 / integration: ${#INTEGRATION_TESTS[@]} 件"
+  if assessment_applicable; then
+    echo "  assessment: 適用（分析実行の記録あり → all の最後に自動実行される）"
+  else
+    echo "  assessment: 未適用（分析実行の記録がまだ無い = Phase 0a 未着手）"
+  fi
+  echo "  実装ツリー:"
+  for tree in "${MODERNIZED_TREES[@]}"; do
+    if [ -d "$tree/.git" ]; then
+      echo "    ✅ $tree"
+    else
+      echo "    ⏸️  ${tree}（未作成）"
+    fi
+  done
+}
+
+do_build_cmd() {
+  echo "=== Build ==="
+  ( cd "$MODERNIZED" && eval "$BUILD_CMD" )
+}
+
+# --- エントリポイント ----------------------------------------------------------
+# --- Phase 0a 完了条件の機械確認（all には含まれない） -------------------------
+# Phase 0a の完了条件6項目のうち、人間の判断が要るのは「対象/対象外の確定」だけである。
+# 残りは台帳に書かれているかどうかで機械判定できる。チェックリストを人に読ませる代わりに
+# これを1回叩く。アセスメントのみで終える場合は 0a 完了で停止して確認するが、
+# 移行に進む前提（migration-project.md の「アセスメントのみ」= no）なら停止せず
+# これで確認して 0b へ直行する。
+do_assessment() {
+  echo "=== Phase 0a Completion Check ==="
+  local rows bad
+  # 0) 必須入力が確定している（0a-3 の前提）
+  for f in "${PROJECT_FILES[@]}"; do
+    if [ -f "$f" ]; then check_mandatory_inputs "$f"; fi
+  done
+  # 1) リポジトリ棚卸し: データ行があり、対象外には理由がある
+  if [ ! -f "$REPO_INVENTORY" ]; then
+    fail "repository inventory not found: $REPO_INVENTORY"
+  else
+    rows="$(section_rows "$REPO_INVENTORY" 'リポジトリ一覧|Repositories' | wc -l | tr -d ' ')"
+    if [ "$rows" -eq 0 ]; then
+      fail "$REPO_INVENTORY: no repository rows (0a-1 must fill it in)"
+    else
+      pass "$REPO_INVENTORY: $rows repositories"
+      bad="$(section_rows "$REPO_INVENTORY" 'リポジトリ一覧|Repositories' | awk -F'|' '
+        { t=$8; r=$9; gsub(/^[ \t]+|[ \t]+$/,"",t); gsub(/^[ \t]+|[ \t]+$/,"",r)
+           if (t ~ /(×|x|X|no|No)/ && r == "") printf "      %s\n", $2 }')"
+      if [ -n "$bad" ]; then
+        fail "$REPO_INVENTORY: excluded repositories without a reason"
+        echo "$bad"
+      else
+        pass "exclusions carry a reason"
+      fi
+    fi
+    # 0a-2 の停止点。利用者確認は人間の行為なので、記録の有無だけを見る。
+    # 雛形は「未 / 済（YYYY-MM-DD）」という選択肢を持つため、実日付があることまで要求する
+    if grep -qE '(利用者確認|User confirmation).*(済|done).*[0-9]{4}-[0-9]{2}-[0-9]{2}' "$REPO_INVENTORY" 2>/dev/null; then
+      pass "the scope was confirmed with the user (0a-2)"
+    else
+      fail "$REPO_INVENTORY: the 0a-2 user confirmation is not recorded"
+    fi
+  fi
+
+  # 2) 分析実行台帳: 実行/取り込みの記録があり、終了コードと出力先が埋まっている
+  if [ ! -f "$ANALYSIS_RUNS" ]; then
+    fail "analysis run ledger not found: $ANALYSIS_RUNS"
+  else
+    rows="$(section_rows "$ANALYSIS_RUNS" '分析実行の記録|Analysis runs' | wc -l | tr -d ' ')"
+    if [ "$rows" -eq 0 ]; then
+      fail "$ANALYSIS_RUNS: no analysis runs recorded"
+    else
+      pass "$ANALYSIS_RUNS: $rows runs recorded"
+      bad="$(section_rows "$ANALYSIS_RUNS" '分析実行の記録|Analysis runs' | awk -F'|' '
+        { src=$4; rc=$7; done_=$8; out=$11
+           gsub(/^[ \t]+|[ \t]+$/,"",src); gsub(/^[ \t]+|[ \t]+$/,"",rc)
+           gsub(/^[ \t]+|[ \t]+$/,"",done_); gsub(/^[ \t]+|[ \t]+$/,"",out)
+           if (out == "") { printf "      %s: no output location\n", $2; next }
+           if (src !~ /(executed|実行)/) next
+           if (rc == "") { printf "      %s: no exit code\n", $2; next }
+           if (done_ !~ /(完了|complete)/ || done_ ~ /(未完了|incomplete)/)
+             printf "      %s: not judged complete (%s)\n", $2, (done_ == "" ? "(empty)" : done_) }')"
+      if [ -n "$bad" ]; then
+        fail "$ANALYSIS_RUNS: runs not judged complete, or missing an exit code or output location"
+        echo "$bad"
+        echo "      → 完了判定は終了コードで行わない。非空ファイル数または終端成果物の存在で判定する（0a-5）"
+      else
+        pass "every run is judged complete and records its exit code and output location"
+      fi
+    fi
+
+    # 3) git 復帰確認。ATX は staging ブランチを切るため、戻っていないと以後の作業が汚染される
+    rows="$(section_rows "$ANALYSIS_RUNS" 'git 状態の記録|Git state' | wc -l | tr -d ' ')"
+    if [ "$rows" -eq 0 ]; then
+      echo "  ⏸️  git 状態の記録が空（取り込みのみで実行していない場合はこれで正しい）"
+    else
+      bad="$(section_rows "$ANALYSIS_RUNS" 'git 状態の記録|Git state' | awk -F'|' '
+        { v=$8; gsub(/^[ \t]+|[ \t]+$/,"",v)
+           if (v !~ /(一致|match)/ || v ~ /(不一致|mismatch)/) printf "      %s: %s\n", $2, (v == "" ? "(empty)" : v) }')"
+      if [ -n "$bad" ]; then
+        fail "$ANALYSIS_RUNS: repositories not confirmed back on their original branch and HEAD"
+        echo "$bad"
+      else
+        pass "all repositories confirmed back on their original branch and HEAD"
+      fi
+    fi
+  fi
+
+  # 4) 分析結果の入口。「リンクが書かれている」ではなく「辿れる」ことを検査する
+  if [ ! -f "$ANALYSIS_README" ]; then
+    fail "analysis entry point not found: $ANALYSIS_README"
+  else
+    check_md_links "$ANALYSIS_README"
+  fi
+
+  # 5) 記録の更新。日付が1つも無ければ雛形のまま
+  for f in "$SESSION_CONTEXT" "$WORKLOG"; do
+    if [ ! -f "$f" ]; then
+      fail "not found: $f"
+    elif grep -qE '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]' "$f" 2>/dev/null; then
+      pass "$f: updated"
+    else
+      fail "$f: still the scaffold (no dated entry)"
+    fi
+  done
+  gate_result "assessment"
+}
+
+# Markdown ファイル内の相対リンクが実在するかを検査する。$1=ファイルパス。
+# **ホストのファイルシステムに問い合わせない**（CP-12）: `test -e` は macOS のように
+# 大文字小文字を区別しないファイルシステムで `Content/images/x.jpg` と `Content/Images/x.jpg` を
+# 同一視するため、Linux で 404 になる不一致を見逃す。git のファイル一覧との厳密な文字列比較なら
+# どの環境でも同じ結果になる。ディレクトリへのリンクは配下にファイルがあることで実在とみなす。
+check_md_links() {
+  local md="$1" base tracked links link target n nmiss missing
+  base="$(dirname "$md")"
+  tracked="$(git ls-files -co --exclude-standard 2>/dev/null)"
+  links="$( { grep -oE '\]\([^)#][^)]*\)' "$md" 2>/dev/null | sed -E 's/^\]\(//; s/\)$//'
+             grep -oE 'href="[^"#][^"]*"' "$md" 2>/dev/null | sed -E 's/^href="//; s/"$//'; } \
+    | sed -E 's/[[:space:]].*$//; s/#.*$//; s#^\./##' \
+    | grep -vE '^[a-z][a-z0-9+.-]*:' | grep -vE '^$' | sort -u)"
+  if [ -z "$links" ]; then
+    fail "$md: no relative links to the analysis results"
+    return 0
+  fi
+  n=0; nmiss=0; missing=""
+  while IFS= read -r link; do
+    [ -n "$link" ] || continue
+    n=$((n+1))
+    target="${base}/${link}"
+    case "$link" in
+      */) if echo "$tracked" | awk -v p="$target" 'index($0,p)==1 { found=1 } END { exit !found }'; then continue; fi ;;
+      *)  if echo "$tracked" | grep -qFx "$target"; then continue; fi ;;
+    esac
+    nmiss=$((nmiss+1)); missing="${missing}      ${link}
+"
+  done < <(printf '%s\n' "$links")
+  if [ "$nmiss" -gt 0 ]; then
+    fail "$md: $nmiss of $n link targets do not exist"
+    printf '%s' "$missing"
+    echo "      → git のファイル一覧との厳密比較で判定している。大文字小文字の不一致もここで落ちる（CP-12）。"
+    echo "        リンク先が git 管理外（.gitignore 対象）の場合も落ちるため、成果物は追跡対象にすること。"
+  else
+    pass "$md: all $n link targets exist"
+  fi
+}
+
+# `all` で assessment を実行してよいか（= Phase 0a に着手済みか）を判定する。
+# 無条件に `all` へ入れると初日から落ちて「落ちて当然」の慣れを生むため、
+# 分析実行の記録が1行以上あるときだけ実行する。
+assessment_applicable() {
+  local rows
+  [ -f "$ANALYSIS_RUNS" ] || return 1
+  rows="$(section_rows "$ANALYSIS_RUNS" '分析実行の記録|Analysis runs' | wc -l | tr -d ' ')"
+  [ "$rows" -gt 0 ]
+}
+
+# 見出し配下の表のデータ行だけを取り出す。$1=ファイル $2=見出しの正規表現。
+# 区切り行より後の行だけを対象にし（見出し行を除くため）、雛形の例（`<` を含む）は捨てる。
+# 見出しは日英で異なるため、正規表現に両方を並べる（コード行は両言語で同一でなければならない）。
+# コメント除去は strip_comments に委ねる。除去後の空行は表の終端と見なさない
+# （コメントブロックが表の途中にあっても後続のデータ行を落とさない）。
+section_rows() {
+  strip_comments "$1" | awk -v sec="$2" '
+    /^[[:space:]]*$/ { next }
+    /^#+ / { inSec = ($0 ~ sec) ? 1 : 0; body = 0; next }
+    !inSec { next }
+    /^\|[[:space:]]*:?-{2,}/ { body = 1; next }
+    body && /^\|/ { if ($0 !~ /</) print; next }
+    body { body = 0 }
+  '
+}
+
+case "${1:-all}" in
+  build)        gate_build ;;
+  smoke)        gate_smoke ;;
+  integration)  gate_integration ;;
+  nonfunc)      gate_nonfunc ;;
+  repo-sync)    gate_repo_sync ;;
+  knowledge)    gate_knowledge ;;
+  adaptation)   gate_adaptation ;;
+  project)      gate_project ;;
+  assessment)   do_assessment ;;
+  list)         do_list ;;
+  status)       do_status ;;
+  run-build)    do_build_cmd ;;
+  all)
+    gate_build
+    gate_smoke
+    gate_integration
+    if [ "$RUN_NONFUNC" = "1" ]; then gate_nonfunc; else
+      echo "=== Gate 4: Non-functional Test ==="
+      echo "  ⏸️  未適用: RUN_NONFUNC=0（Phase 1 で非機能を対象外と判断した場合はこれで正しい）"
+      gate_na
+    fi
+    gate_repo_sync
+    gate_knowledge
+    gate_adaptation
+    gate_project
+    if assessment_applicable; then do_assessment; fi
+    echo ""
+    echo "=== ALL VERIFICATION GATES PASSED (substantive: ${SUBSTANTIVE_GATES} gates / ${TOTAL_CHECKS} checks, not-applicable: ${NA_GATES} gates) ==="
+    if [ "$NA_GATES" -gt 0 ]; then
+      echo "    ⚠️  未適用のゲートがある。「全ゲートPASS」ではなく上記の実質件数で報告すること。"
+    fi
+    ;;
+  *)
+    echo "Usage: $0 [build|smoke|integration|nonfunc|repo-sync|knowledge|adaptation|project|assessment|list|status|run-build|all]" >&2
+    exit 2
+    ;;
+esac

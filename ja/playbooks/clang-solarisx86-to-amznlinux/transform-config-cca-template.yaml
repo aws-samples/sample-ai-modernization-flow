@@ -1,0 +1,76 @@
+# ATX Transform Config: Solaris→Linux ポーティング分析
+# additionalPlanContext は 4096バイト以内(ATX上限)。
+# 実行: 記録リポジトリのルートで
+#   atx custom def exec -g file://00-analysis/<repo-id>/transform-config-cca.yaml -x -t
+# codeRepositoryPath は**記録リポジトリのルートからの相対パス**（基準を1つに固定する）。
+# 設定後に `realpath <値>` で実在パスに解決できることを必ず確認する。
+# <PROJECT_SPECIFIC_NOTES> には対象固有の重点を箇条書きで書く（記入例: 特に注目する日時処理、
+# メジャー版差の大きいライブラリとその主な変更点、テスト・仕様書の有無）。無ければ節ごと削除する。
+
+codeRepositoryPath: <RELATIVE_PATH_TO_SOURCE>
+transformationName: AWS/comprehensive-codebase-analysis
+buildCommand: noop
+additionalPlanContext: |
+  出力言語: 日本語
+  目的: <SOURCE_OS>→<TARGET_OS>移行分析。work-planインプット用。
+
+  ## 環境
+  | 項目 | 移行元 | 移行先 |
+  |------|--------|--------|
+  | OS | <SOURCE_OS_VERSION> | <TARGET_OS_VERSION> |
+  | Arch | <SOURCE_ARCH> | <TARGET_ARCH> |
+  | CC | <SOURCE_CC> | <TARGET_CC> |
+  | OpenSSL | <SRC_OPENSSL> | <TGT_OPENSSL> |
+  | Libs | <SRC_LIBS> | <TGT_LIBS> |
+
+  ## 移行先未定時
+  目標欄が空なら仮定せず、移行先候補をLTS/破壊的変更規模/互換連鎖つきで列挙。決定はPhase 0b(ADR)。
+
+  ## 分析観点
+  1. OS固有コード: #ifdef __sun等,OS固有syscall,コンパイラ属性,configure検出
+  2. 32→64bit: long/ptr依存,構造体パディング,sizeof依存,固定バッファへの型格納
+  3. 2038年(time_t): 全使用箇所,int/int32_tダウンキャスト,シリアライズ,ハードコード日付(2037等),有効期限,HTTPヘッダ日時
+  4. ライブラリ振る舞い変更【最重要】: API削除でなく「同APIの動作変更」を調査
+     手順: メジャー版差ライブラリ特定→CHANGES確認→新設互換オプション列挙(=旧動作に戻すスイッチ=破壊シグナル)→デフォルト変更項目→影響箇所特定
+     報告: |ライブラリ|変更|旧動作|新動作|互換オプション|影響箇所|
+  5. config.hマクロ値: 移行先で正しいか検証。accept継承,sendfile,イベント機構,ソケットオプション
+     報告: |マクロ|移行元値|移行先正解値|根拠(man)|間違時の影響|
+  6. イベントI/O: 移行元モデル使用箇所,移行先変換パス,エッジ/レベルトリガ判定(EAGAINループ有=ET,1回で戻る=LT)
+  7. ビルド互換: 非推奨/削除API,警告→エラー昇格,不透明型化でメンバーアクセス不可
+  8. 文字コード: setlocale使用,ロケール依存関数,ソースエンコーディング
+
+  ## OS間差異(Solaris→Linux)
+  | Key | Solaris | Linux |
+  |-----|---------|-------|
+  | Atomic | atomic.h(add_nv=新値,cas=旧値) | __atomic_fetch_add=旧値,compare_exchange=bool |
+  | EventIO | port_*(自動解除,timespec) | epoll_*(永続,ms) |
+  | Time | gethrtime()→ns直接 | clock_gettime(MONOTONIC)→timespec |
+  | Thread | thr_create(6)/join(3) | pthread_create(4)/join(2) |
+  | SHM | POSIX共通,shmmax差 | 同左 |
+  | Signal | POSIX共通,SIGRTMIN範囲差 | 同左 |
+  | FS | stat64(),attropen() | _FILE_OFFSET_BITS=64,getxattr() |
+  | Net | TCP_NOPUSH,SO_EXCLBIND | TCP_CORK,EAGAIN==EWOULDBLOCK |
+  | Proc | /proc=構造体,RLIMIT_VMEM | /proc=text,RLIMIT_AS |
+  | Build | -lsocket -lnsl,-mt,__sun | glibc統合,-pthread,__linux__ |
+  | Locale | eucJP/PCK | UTF-8,-finput-charset |
+  | Doors | door_*() | UDS |
+  | Contract | ctfs | cgroups v2 |
+  | kstat | kstat_*() | /proc,/sys |
+  | DTrace | dtrace | eBPF/bpftrace |
+  | RBAC | usermod -P | capabilities,SELinux |
+  | FMA | fmadm | rasdaemon |
+  | ZFS | zpool/zfs | ext4/xfs+LVM |
+  | libumem | umem_*() | jemalloc |
+  | SMF | svcadm | systemd |
+  | libc | strlcpy有 | strlcpy無(glibc<2.38),struct stat差 |
+
+  ## 出力形式
+  A. アーキテクチャ概要: モジュール構造,イベントモデル,データフロー
+  B. 影響箇所一覧: |#|カテゴリ|ファイル:行|現コード|修正|優先度|検証方法|
+     優先度: P0=ビルド不可,P1=実行時エラー,P2=警告,P3=改善。検証方法必須
+  C. 振る舞い変更一覧: ライブラリ変更テーブル+マクロ値テーブル
+  D. 依存関係マップ: 修正間依存,Phase分割推奨
+  E. リスク: 「ビルド通るが実行時に壊れる」パターン列挙
+
+  ## プロジェクト固有
+  <PROJECT_SPECIFIC_NOTES>

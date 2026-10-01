@@ -1,0 +1,11 @@
+# --- [port] build artifacts: C / native (このPlaybookのビルド成果物) ---
+*.o
+*.a
+*.so
+*.so.*
+*.lo
+*.la
+*.exe
+core
+core.*
+*~

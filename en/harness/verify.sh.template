@@ -1,0 +1,1029 @@
+#!/bin/bash
+# ai-modernization-flow <HARNESS_VERSION>
+# Provenance: install.sh stamps the framework version into the line above. It is the only
+# machine-checkable way to tell which version a project's gate came from
+# (`install.sh --update-project` reads it). Do not edit it by hand.
+# =============================================================================
+# Migration Project Verification Gate (verify.sh)
+# =============================================================================
+#
+# Usage:
+#   ./verify.sh              ← Full verification (build → smoke → integration [→ nonfunc]
+#                               → repo-sync → knowledge → adaptation → project)
+#   ./verify.sh build        ← Gate 1: Confirm artifacts exist
+#   ./verify.sh smoke        ← Gate 2: Startup and basic operation
+#   ./verify.sh integration  ← Gate 3: Integration / E2E behavior
+#   ./verify.sh nonfunc      ← Gate 4: Non-functional (opt-in)
+#   ./verify.sh repo-sync    ← Gate 5: Uncommitted-change sync check across the records repo and modernized trees
+#   ./verify.sh knowledge    ← Gate 6: Quantitative discipline for knowledge files
+#   ./verify.sh adaptation   ← Gate 7: Adaptation ledger (unaddressed count, evidence, exclusion reasons, negative-test records)
+#   ./verify.sh project      ← Gate 8: Provenance of project information (remaining ⟨inferred⟩)
+#   ./verify.sh assessment   ← Mechanical check of the Phase 0a completion conditions
+#                               (within `all` it runs automatically only once Phase 0a has started)
+#   ./verify.sh list         ← Show the expected list
+#   ./verify.sh status       ← Show gate applicability (whether the work-plan is confirmed)
+#
+# Gate applicability:
+#   build / smoke / integration / nonfunc apply **only once the work-plan is confirmed**.
+#   Confirmation is decided by a machine-readable marker inside work-plan.md:
+#       <!-- WORK-PLAN-STATUS: DRAFT     -->  → not confirmed. Gates report "not applicable" and exit 0
+#       <!-- WORK-PLAN-STATUS: CONFIRMED -->  → confirmed. Gates apply for real from here on
+#   Rewrite it to CONFIRMED once the work-plan is approved at the Phase 2 phase gate (HOLD-8).
+#   If it is CONFIRMED but the expected list is empty, the gate FAILs
+#   (CP-7 — a forgotten registration must not slip through).
+#   repo-sync always applies regardless of the work-plan state (recording discipline matters from day one).
+#
+# Setup steps:
+#   1. Replace <PLACEHOLDER> with actual values.
+#   2. ★ When the work-plan is finalized (day one), register "all in-scope
+#      artifacts" from the success criteria table into EXPECTED_ARTIFACTS (CP-7).
+#      Register items that cannot be built yet too — an unregistered artifact
+#      means the fact that it is "not built" will never be detected.
+#   3. Implement smoke / integration to match the project
+#      (see the Playbook's verify-snippets.md for language/domain-specific examples)
+#      ★ smoke must be implemented by the time Step 1 completes (proceeding to Step 2 or beyond while it remains unimplemented is forbidden)
+#   4. Only implement nonfunc if non-functional requirements are in scope
+#      (per the Phase 1 ADR decision), and set RUN_NONFUNC=1
+#
+# Principles:
+#   - Enforce "build success ≠ done" mechanically (CP-4)
+#   - Verification gate = every item in the success criteria table (CP-6). Do not rely on manual checks
+#   - Ad-hoc verification scripts should be placed in 02-test/integration/ and
+#     promoted to the integration gate
+# =============================================================================
+set -uo pipefail
+
+# --- Configuration -----------------------------------------------------------
+# Modernized trees (independent repositories alongside this project).
+# If one system consists of multiple repositories, list them all (keep this aligned with repository-inventory.md).
+MODERNIZED_TREES=(
+  "../<PRODUCT>-modernized"
+  # "../<COMPONENT2>-modernized"
+)
+# Shorthand reference for a single-repository setup (used in EXPECTED_ARTIFACTS etc.)
+MODERNIZED="${MODERNIZED:-${MODERNIZED_TREES[0]}}"
+# Build command (depends on the language/build system, e.g. make / mvn package / gradle build / npm run build)
+BUILD_CMD="${BUILD_CMD:-<BUILD_COMMAND>}"
+# Enable the non-functional gate (set to 1 only if it was judged "in scope" in Phase 1)
+RUN_NONFUNC="${RUN_NONFUNC:-0}"
+# Work plan (used to decide gate applicability)
+WORK_PLAN="${WORK_PLAN:-01-plan/work-plan.md}"
+# Session context (used to detect unrecorded uncommitted changes)
+SESSION_CONTEXT="${SESSION_CONTEXT:-03-worklog/session-context.md}"
+WORKLOG="${WORKLOG:-03-worklog/worklog.md}"
+REPO_INVENTORY="${REPO_INVENTORY:-00-analysis/repository-inventory.md}"
+ANALYSIS_RUNS="${ANALYSIS_RUNS:-00-analysis/analysis-runs.md}"
+ANALYSIS_README="${ANALYSIS_README:-00-analysis/README.md}"
+# Paths to scan for diagnostic-code markers (relative to the modernized tree; empty scans everything)
+DIAG_SCAN_PATHS=(
+  # "src"
+)
+# Allowed divergence (hours) between the last commit of the records repo and a modernized tree. Exceeding it signals a sync gap
+SYNC_DIVERGENCE_HOURS="${SYNC_DIVERGENCE_HOURS:-4}"
+# Quantitative discipline for knowledge files (see "Quantitative Discipline" in
+# practices-common.md. Set to 0 to disable a check)
+KNOWLEDGE_FILES=(
+  "docs/knowledge/practices-common.md"
+  "docs/knowledge/practices.md"
+  "docs/knowledge/lessons-learned.md"
+)
+KNOWLEDGE_MAX_SUMMARY_BYTES="${KNOWLEDGE_MAX_SUMMARY_BYTES:-300}"
+KNOWLEDGE_MAX_ENTRY_LINES="${KNOWLEDGE_MAX_ENTRY_LINES:-80}"
+KNOWLEDGE_MAX_ENTRIES="${KNOWLEDGE_MAX_ENTRIES:-15}"
+# Adaptation ledger ( The coverage baseline on the behaviour side. Created in Phase 0b,
+# driven to zero unaddressed entries in Phase 4)
+ADAPTATION_LEDGER="${ADAPTATION_LEDGER:-01-plan/adaptation-ledger.md}"
+# Decision records (where the independent-verification and negative-test records live)
+DECISIONS_FILE="${DECISIONS_FILE:-docs/decisions/decisions.md}"
+# Patterns that must not appear in committed code of a modernized tree (defined by the Playbook;
+# empty disables the check). For detecting unintended stubbing/mocking. Tag temporary ones
+# with `// STUB-<id>:`
+FORBIDDEN_PATTERNS=(
+  # "not implemented"
+)
+# Paths to scan for forbidden patterns (narrow to implementation sources; exclude tests.
+# Empty disables the check)
+FORBIDDEN_SCAN_PATHS=(
+  # "src/main"
+)
+# Whether to require golden-path E2E tests (tests that drive the real user path in a browser).
+# Set to 1 for UI-rendering applications — "no exception, HTTP 200, blank screen" is caught nowhere else
+REQUIRE_GOLDEN_PATH="${REQUIRE_GOLDEN_PATH:-0}"
+GOLDEN_PATH_TESTS=(
+  # "02-test/integration/e2e-golden-path.sh"
+)
+# Project-specific information files (on the workspace side; used to check provenance markers).
+# The location depends on the --tool choice, so both are candidates. If neither exists, the check is skipped
+PROJECT_FILES=(
+  "../.kiro/steering/migration-project.md"
+  "../CLAUDE.md"
+)
+
+# --- Expected list (CP-7: register "everything in scope" when the work-plan is finalized) ---
+# Any kind of artifact counts (executable / .so / .jar / .war / files under dist/ etc.)
+EXPECTED_ARTIFACTS=(
+  "$MODERNIZED/<path/to/artifact1>"
+  "$MODERNIZED/<path/to/artifact2>"
+)
+# --- Exclusions (record the reason, referring to the ADR / lessons-learned) ---
+# <path/to/excluded>   → <reason (ADR-N)>
+
+# --- Integration tests (register 02-test/integration/*.sh here. rc=0 = PASS) ---
+INTEGRATION_TESTS=(
+  # "02-test/integration/<test1>.sh"
+  # "02-test/integration/<test2>.sh"
+)
+
+# --- Helpers -------------------------------------------------------------------
+PASS_COUNT=0; FAIL_COUNT=0
+# Substantiveness tally. It exists to prevent "6 of 8 gates were not applicable or had nothing to
+# check, only 2 gates and 11 checks actually ran, and the output still said ALL VERIFICATION GATES
+# PASSED". When the word "PASSED" is quoted on its own, the substance of the check is lost.
+SUBSTANTIVE_GATES=0; NA_GATES=0; TOTAL_CHECKS=0
+pass() { echo "  ✅ $*"; PASS_COUNT=$((PASS_COUNT+1)); }
+fail() { echo "  ❌ $*"; FAIL_COUNT=$((FAIL_COUNT+1)); }
+gate_na() { NA_GATES=$((NA_GATES+1)); }
+gate_result() {  # $1=gate name
+  echo "  PASS: $PASS_COUNT  FAIL: $FAIL_COUNT"
+  if [ "$FAIL_COUNT" -gt 0 ]; then echo ""; echo "❌ Gate failed: $1"; exit 1; fi
+  if [ "$PASS_COUNT" -gt 0 ]; then
+    SUBSTANTIVE_GATES=$((SUBSTANTIVE_GATES+1)); TOTAL_CHECKS=$((TOTAL_CHECKS+PASS_COUNT))
+  else
+    gate_na
+  fi
+  PASS_COUNT=0; FAIL_COUNT=0
+}
+
+# Whether the work-plan is confirmed (decided by the machine-readable marker)
+work_plan_confirmed() {
+  grep -q 'WORK-PLAN-STATUS:[[:space:]]*CONFIRMED' "$WORK_PLAN" 2>/dev/null
+}
+
+# --- Shared extractors (pull data rows out of the records) --------------------
+# **Do not hand-roll an extractor in each gate.** Scanning records goes through the two below only.
+# Measured: HTML comment exclusion was implemented separately in 4 places, 3 of which used the
+# `/<!--/ { inc=1 } inc { ...; next }` form (which drops an entire data row that contains `<!--`
+# mid-line), and 1 of which had no exclusion at all. The same class of misfire recurred across
+# projects. When the counting itself breaks, the gate quietly stops inspecting anything.
+
+# Return the body with HTML comments removed ($1=file). Handles both inline and multi-line
+# comments, and **keeps the body before the comment starts** (a data row containing a comment
+# does not lose the row itself).
+# **Exactly one line is emitted per input line** (a comment line becomes a blank line), so `NR` does
+# not shift and a check that reports line numbers can use it as-is.
+strip_comments() {
+  awk '
+    { line = $0
+      if (inc) { if (line ~ /-->/) { sub(/^.*-->/, "", line); inc = 0 } else { print ""; next } }
+      while (match(line, /<!--.*-->/)) { sub(/<!--.*-->/, "", line) }
+      if (line ~ /<!--/) { sub(/<!--.*$/, "", line); inc = 1 }
+      print line
+    }
+  ' "$1" 2>/dev/null
+}
+
+# Return the table rows between a machine-readable marker and **the next H2 heading**
+# ($1=file $2=marker). The marker line is itself an HTML comment, so it is matched before the
+# removal (after removal it becomes a blank line). Examples inside the explanatory comment that
+# follows the marker are dropped as comments (pitfall 7). Without closing at the heading, the
+# table of the neighbouring section is also counted (the independent verification record was
+# counting the negative test record).
+marker_rows() {
+  awk -v marker="$2" '
+    /^##[[:space:]]/ { inSec = 0 }
+    index($0, marker) { inSec = 1 }
+    { line = $0
+      if (inc) { if (line ~ /-->/) { sub(/^.*-->/, "", line); inc = 0 } else next }
+      while (match(line, /<!--.*-->/)) { sub(/<!--.*-->/, "", line) }
+      if (line ~ /<!--/) { sub(/<!--.*$/, "", line); inc = 1 }
+      if (inSec && line ~ /^\|/) print line
+    }
+  ' "$1" 2>/dev/null
+}
+
+# Bail out as "not applicable" if unconfirmed (the caller returns 0 on a zero exit status)
+skip_if_plan_unconfirmed() {
+  if work_plan_confirmed; then return 1; fi
+  echo "  ⏸️  Not applicable: the work-plan is not confirmed ($WORK_PLAN)"
+  echo "     Rewrite WORK-PLAN-STATUS to CONFIRMED once approved at the Phase 2 phase gate"
+  gate_na
+  return 0
+}
+
+# --- Gate 1: Confirm artifacts exist ---------------------------------------------
+gate_build() {
+  echo "=== Gate 1: Build Verification ==="
+  if skip_if_plan_unconfirmed; then return 0; fi
+  if [ "${#EXPECTED_ARTIFACTS[@]}" -eq 0 ]; then
+    fail "work-plan is CONFIRMED but the expected list is empty (CP-7 violation)"
+    echo "      → Register every in-scope artifact from the success criteria table into EXPECTED_ARTIFACTS."
+    echo "        For an unregistered artifact, the very fact that it is \"not built\" goes undetected."
+    gate_result "build"
+    return 0
+  fi
+  echo "  Total expected: ${#EXPECTED_ARTIFACTS[@]}"
+  for f in "${EXPECTED_ARTIFACTS[@]}"; do
+    if [ -e "$f" ]; then PASS_COUNT=$((PASS_COUNT+1)); else fail "missing: $f"; fi
+  done
+  [ "$FAIL_COUNT" -eq 0 ] && echo "  ✅ All artifacts present"
+  gate_result "build"
+}
+
+# --- Gate 2: Smoke test (startup and basic operation; a few seconds per item) --------------
+# ★ Implement this to match the project. For examples: the Playbook's verify-snippets.md
+#   - CLI: --help / --version returns rc=0
+#   - Daemon/server: starts and stays alive for a few seconds, responds on its port
+#   - Library/module: verify loading and dependency resolution
+gate_smoke() {
+  echo "=== Gate 2: Smoke Test ==="
+  if skip_if_plan_unconfirmed; then return 0; fi
+  echo "  ⚠️  smoke gate is not implemented yet."
+  echo "     Implement it by the time Step 1 completes (see the Playbook's verify-snippets.md)"
+  exit 1
+}
+
+# --- Gate 3: Integration test (integration / E2E behavior) -----------------------------------
+gate_integration() {
+  echo "=== Gate 3: Integration Test ==="
+  if skip_if_plan_unconfirmed; then return 0; fi
+  if [ "$REQUIRE_GOLDEN_PATH" = "1" ] && [ "${#GOLDEN_PATH_TESTS[@]}" -eq 0 ]; then
+    fail "REQUIRE_GOLDEN_PATH=1 but no GOLDEN_PATH_TESTS are registered"
+    echo "      → Register an E2E test that drives the real user path in a browser."
+    echo "        build/smoke/unit only check that it starts without an exception, so they"
+    echo "        cannot detect the silent failure \"no exception, HTTP 200, blank screen\"."
+  fi
+  if [ "${#INTEGRATION_TESTS[@]}" -eq 0 ] && [ "${#GOLDEN_PATH_TESTS[@]}" -eq 0 ]; then
+    echo "  (No tests registered — add them under 02-test/integration/ in each Step and register here)"
+    gate_result "integration"
+    return 0
+  fi
+  for t in ${GOLDEN_PATH_TESTS[@]+"${GOLDEN_PATH_TESTS[@]}"}; do
+    if [ ! -f "$t" ]; then fail "missing golden-path: $t"; continue; fi
+    if bash "$t"; then pass "golden-path: $t"; else fail "golden-path: $t"; fi
+  done
+  for t in ${INTEGRATION_TESTS[@]+"${INTEGRATION_TESTS[@]}"}; do
+    if [ ! -f "$t" ]; then fail "missing: $t"; continue; fi
+    if bash "$t"; then pass "$t"; else fail "$t"; fi
+  done
+  gate_result "integration"
+}
+
+# --- Gate 4: Non-functional test (opt-in — only if judged "in scope" by the Phase 1 ADR) --
+gate_nonfunc() {
+  echo "=== Gate 4: Non-functional Test ==="
+  if skip_if_plan_unconfirmed; then return 0; fi
+  echo "  ⚠️  nonfunc gate is not implemented."
+  echo "     Implement the items put in scope in Phase 1 (performance/leaks etc.)"
+  echo "     (Long-running tests can be run by the AI in the background with log monitoring. Decide the executor in Phase 1-2)"
+  exit 1
+}
+
+# --- Gate 5: Repository sync (two-repository discipline. Run at Step completion and session end) ---
+# FAIL if either the records repository or any modernized tree has uncommitted changes.
+# Combined with the "open the record when you start, and commit WIP frequently" discipline
+# (core / skills/migration-troubleshooting), this mechanically closes the gap of unrecorded
+# uncommitted changes and of recording only one side of the pair.
+# It always applies regardless of the work-plan state (recording discipline matters from day one).
+gate_repo_sync() {
+  echo "=== Gate 5: Repository Sync Check ==="
+  local mig_dirty mig_ts found tree
+  mig_dirty="$(git status --short 2>/dev/null)"
+  if [ -n "$mig_dirty" ]; then
+    fail "records repository has uncommitted changes:"
+    echo "$mig_dirty" | sed 's/^/      /'
+  else
+    pass "records repository is clean"
+  fi
+  mig_ts="$(git log -1 --format=%ct 2>/dev/null || echo 0)"
+
+  found=0
+  for tree in "${MODERNIZED_TREES[@]}"; do
+    if [ ! -d "$tree/.git" ]; then
+      # Before Phase 3 Step 1 it is normal for the modernized tree not to exist.
+      # Once the work-plan is confirmed, its absence is a discipline violation.
+      if work_plan_confirmed; then
+        fail "modernized tree not found: $tree (must exist once the work-plan is CONFIRMED)"
+      else
+        echo "  ⏸️  Not created yet: $tree (created by setup-modernized.sh in Phase 3 Step 1)"
+      fi
+      continue
+    fi
+    found=$((found+1))
+    check_one_tree "$tree" "$mig_ts"
+  done
+  if [ "$found" -eq 0 ]; then
+    echo "  (No modernized tree exists yet, so only the records repository was checked)"
+  fi
+  gate_result "repo-sync"
+}
+
+# Check a single modernized tree. $1=path to the modernized tree, $2=last commit time of the records repo (epoch)
+check_one_tree() {
+  local tree="$1" mig_ts="$2"
+  local dirty wt_section diag_committed stub_committed forbidden_hits pat hit tree_ts diff_sec
+
+  dirty="$(cd "$tree" && git status --short 2>/dev/null)"
+  if [ -n "$dirty" ]; then
+    fail "$tree has uncommitted changes:"
+    echo "$dirty" | sed 's/^/      /'
+
+    # If dirty, a declaration written at the start is mandatory (interruption-resilience discipline).
+    # Require a real dated declaration line. A string-exists check lets an unrelated occurrence or the
+    # scaffold placeholder pass (vacuous pass). The preToolUse hook is the enforcement point for
+    # "before first contact"; this check is a post-hoc confirmation.
+    wt_section="$(awk '/In-progress Investigation \/ Working-tree State/{f=1;next} /^## /{f=0} f' "$SESSION_CONTEXT" 2>/dev/null)"
+    if echo "$wt_section" | grep -qE 'This turn \([0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]T[0-9][0-9]:[0-9][0-9]:[0-9][0-9]'; then
+      pass "$tree is dirty, and session-context carries a dated 'This turn' declaration"
+    else
+      fail "$tree has uncommitted changes but session-context has no dated 'This turn (<T_prompt>)' declaration"
+      echo "      → Write a declaration line before editing the working tree"
+      echo "        (skills/migration-troubleshooting). An undeclared uncommitted change is lost at interruption."
+      echo "        Generate the line: ./03-worklog/turn-report.sh --declare"
+    fi
+  else
+    pass "$tree is clean"
+  fi
+
+  # Check that no DIAG- markers remain in committed code.
+  # DIAG- is only for temporary diagnostic code and must always be reverted before a fix is finalized and committed.
+  if [ "${#DIAG_SCAN_PATHS[@]}" -eq 0 ]; then
+    diag_committed="$(cd "$tree" && git grep -nE 'DIAG-[0-9A-Za-z_]' HEAD 2>/dev/null)"
+  else
+    diag_committed="$(cd "$tree" && git grep -nE 'DIAG-[0-9A-Za-z_]' HEAD -- "${DIAG_SCAN_PATHS[@]}" 2>/dev/null)"
+  fi
+  if [ -n "$diag_committed" ]; then
+    fail "committed code in $tree contains DIAG- markers (diagnostic residue must be reverted):"
+    echo "$diag_committed" | sed 's/^/      /' | head -20
+  else
+    pass "no DIAG- markers in committed code in $tree"
+  fi
+
+  # Check that no STUB- markers remain in committed code.
+  # STUB- marks a temporary stub, mock or disabled feature and must be resolved before finalizing.
+  # This mechanically closes the "unintentionally mocked a feature and never noticed" failure.
+  if [ "${#DIAG_SCAN_PATHS[@]}" -eq 0 ]; then
+    stub_committed="$(cd "$tree" && git grep -nE 'STUB-[0-9A-Za-z_]' HEAD 2>/dev/null)"
+  else
+    stub_committed="$(cd "$tree" && git grep -nE 'STUB-[0-9A-Za-z_]' HEAD -- "${DIAG_SCAN_PATHS[@]}" 2>/dev/null)"
+  fi
+  if [ -n "$stub_committed" ]; then
+    fail "committed code in $tree contains STUB- markers (unresolved stub/mock/disabled feature):"
+    echo "$stub_committed" | sed 's/^/      /' | head -20
+    echo "      → Do not declare done while a feature is still dropped. For a permanent exclusion,"
+    echo "        write an ADR as HOLD-1 and set the ledger disposition to not_applicable (reason required)."
+  else
+    pass "no STUB- markers in committed code in $tree"
+  fi
+
+  # Check that no forbidden pattern (defined by the Playbook) appears in committed code.
+  # A second net for unintended stubbing where the STUB- marker was forgotten.
+  if [ "${#FORBIDDEN_PATTERNS[@]}" -gt 0 ]; then
+    forbidden_hits=""
+    for pat in "${FORBIDDEN_PATTERNS[@]}"; do
+      if [ "${#FORBIDDEN_SCAN_PATHS[@]}" -eq 0 ]; then
+        hit="$(cd "$tree" && git grep -niE "$pat" HEAD 2>/dev/null)"
+      else
+        hit="$(cd "$tree" && git grep -niE "$pat" HEAD -- "${FORBIDDEN_SCAN_PATHS[@]}" 2>/dev/null)"
+      fi
+      if [ -n "$hit" ]; then forbidden_hits="${forbidden_hits}${hit}
+"; fi
+    done
+    if [ -n "$forbidden_hits" ]; then
+      fail "committed code in $tree matches a forbidden pattern:"
+      echo "$forbidden_hits" | sed 's/^/      /' | head -20
+    else
+      pass "no forbidden patterns in committed code in $tree"
+    fi
+  fi
+
+  # Check that the last commit times of the records repo and the modernized tree have not drifted far apart.
+  # This detects "commits progressed on only one side while the other was left behind".
+  # A session that only investigates without code changes legitimately drifts, so it is
+  # tolerated if the reason is stated in session-context (recorded = allowed — the same design as the unrecorded-dirty check).
+  tree_ts="$(cd "$tree" && git log -1 --format=%ct 2>/dev/null || echo 0)"
+  if [ "$mig_ts" != 0 ] && [ "$tree_ts" != 0 ]; then
+    if [ "$tree_ts" -gt "$mig_ts" ]; then diff_sec=$((tree_ts - mig_ts)); else diff_sec=$((mig_ts - tree_ts)); fi
+    if [ "$diff_sec" -gt $((SYNC_DIVERGENCE_HOURS * 3600)) ]; then
+      if grep -q 'REPO-SYNC-DIVERGENCE-OK' "$SESSION_CONTEXT" 2>/dev/null; then
+        pass "commit timestamp divergence for $tree: $((diff_sec/3600))h (reason recorded in session-context)"
+      else
+        fail "last commit timestamps diverge by $((diff_sec/3600))h between records repo and $tree (allowed: ${SYNC_DIVERGENCE_HOURS}h)"
+        echo "      → Commits may have progressed on only one side. Commit both together."
+        echo "        If there is a legitimate reason (investigation only, no code change, etc.), state it in session-context as"
+        echo "        <!-- REPO-SYNC-DIVERGENCE-OK: <reason> -->."
+      fi
+    else
+      pass "commit timestamps in sync for $tree (diff: $((diff_sec/60))min)"
+    fi
+  fi
+}
+
+# --- Gate 6: Knowledge volume discipline (mechanical check of "Quantitative Discipline") ---
+# Prose rules slip through on self-report, so quantities are bounded by numbers and checked here.
+# Exceeding the entry count is the trigger that forces consolidation. If you decide not to
+# consolidate, recording KNOWLEDGE-REVIEWED at the top of the file lets it pass
+# (only an unrecorded excess is rejected).
+# It always applies regardless of the work-plan state (knowledge starts accumulating in Phase 0).
+gate_knowledge() {
+  echo "=== Gate 6: Knowledge Volume Discipline ==="
+  local f found
+  found=0
+  for f in "${KNOWLEDGE_FILES[@]}"; do
+    if [ ! -f "$f" ]; then continue; fi
+    found=$((found+1))
+    check_knowledge_file "$f"
+  done
+  if [ "$found" -eq 0 ]; then
+    echo "  (skipped: no knowledge files are in place)"
+  fi
+  gate_result "knowledge"
+}
+
+# Check a single knowledge file. $1=file path
+check_knowledge_file() {
+  local f="$1"
+  local long_summary long_body entries reviewed
+
+  # Is any summary row too long? (content that does not fit in one line belongs in the body)
+  # Lines inside an HTML comment are not counted: the scaffold's example entries live in comments, so
+  # counting them would make the check pass vacuously right after installation (pitfall 7).
+  long_summary=""
+  if [ "$KNOWLEDGE_MAX_SUMMARY_BYTES" -gt 0 ]; then
+    long_summary="$(strip_comments "$f" | LC_ALL=C awk -v lim="$KNOWLEDGE_MAX_SUMMARY_BYTES" '
+      /^\|[[:space:]]*(CP|DP|LL)-/ { if (length($0) > lim) printf "      line %d: %d bytes\n", NR, length($0) }')"
+  fi
+  if [ -n "$long_summary" ]; then
+    fail "$f: summary row exceeds ${KNOWLEDGE_MAX_SUMMARY_BYTES} bytes"
+    echo "$long_summary"
+  else
+    pass "$f: summary rows within limit"
+  fi
+
+  # Is any entry body too long? (split the detail into docs/reference/)
+  long_body=""
+  if [ "$KNOWLEDGE_MAX_ENTRY_LINES" -gt 0 ]; then
+    long_body="$(strip_comments "$f" | LC_ALL=C awk -v lim="$KNOWLEDGE_MAX_ENTRY_LINES" '
+      /^##+ (CP|DP|LL)-/ {
+        if (start > 0 && NR - start > lim) printf "      %s (%d lines)\n", title, NR - start
+        start = NR; title = $0
+      }
+      END { if (start > 0 && NR - start + 1 > lim) printf "      %s (%d lines)\n", title, NR - start + 1 }')"
+  fi
+  if [ -n "$long_body" ]; then
+    fail "$f: entry body exceeds ${KNOWLEDGE_MAX_ENTRY_LINES} lines (split the detail into docs/reference/)"
+    echo "$long_body"
+  else
+    pass "$f: entry bodies within limit"
+  fi
+
+  # Cap on the entry count. Exceeding it triggers consolidation; a record makes it acceptable.
+  # Headings are accepted at either level (`^##+`) so the check works whether the scaffold's
+  # appending rule or the gate is taken as authoritative. Fixed at `^## `, a lessons-learned file
+  # written as `### LL-N` would be reported as "0 entries" and the whole volume discipline would be
+  # disabled for that file (a vacuous pass).
+  entries="$(strip_comments "$f" | LC_ALL=C awk '
+    /^##+ (CP|DP|LL)-/ { c++ } END { print c+0 }' 2>/dev/null || true)"
+  [ -n "$entries" ] || entries=0
+  if [ "$KNOWLEDGE_MAX_ENTRIES" -gt 0 ] && [ "$entries" -gt "$KNOWLEDGE_MAX_ENTRIES" ]; then
+    # Do not judge by the presence of the word. The scaffold and the "Quantitative Discipline" prose
+    # also contain KNOWLEDGE-REVIEWED, so that would let an over-limit file through forever
+    # (pitfall 7: putting the checked marker into the scaffold makes the check meaningless).
+    # Require the **proper HTML comment form including a real date**.
+    reviewed="$(LC_ALL=C grep -cE '<!--[[:space:]]*KNOWLEDGE-REVIEWED:[[:space:]]*[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]' "$f" 2>/dev/null || true)"
+    [ -n "$reviewed" ] || reviewed=0
+    if [ "$reviewed" -gt 0 ]; then
+      pass "$f: $entries entries (over ${KNOWLEDGE_MAX_ENTRIES}, but KNOWLEDGE-REVIEWED is recorded)"
+    else
+      fail "$f: $entries entries exceeds ${KNOWLEDGE_MAX_ENTRIES} and no KNOWLEDGE-REVIEWED record"
+      echo "      → Consider consolidating or deleting. If you decide not to, record it at the top of the file:"
+      echo "        <!-- KNOWLEDGE-REVIEWED: YYYY-MM-DD (N entries, consolidation deferred: <reason>) -->"
+    fi
+  elif [ "$entries" -eq 0 ]; then
+    echo "  ⚠️  ${f}: 0 entries — nothing was found to check"
+    echo "      Confirm that entries are written as H2 (## CP-N: / ## DP-N: / ## LL-N:)."
+    echo "      Zero more likely means 'nothing was found' than 'the limit was met'."
+  else
+    pass "$f: $entries entries within limit"
+  fi
+}
+
+# --- Gate 7: the adaptation ledger (the coverage baseline for the migration work) ---------------
+# The expected list (the build gate) counts "artifacts that should exist", but it cannot detect a
+# site [inside] an artifact that already exists and was never fixed. This ledger covers that.
+# The coverage baseline is the perspectives in the Playbook's perspective table that apply to this target
+# (one row = one perspective), not the hit count of a code scan (pre-empting the perspectives the
+# build enumerates has no value, and mixed units make the arithmetic meaningless).
+# Which perspectives apply varies with the migration, so [which perspectives were selected must be stated]
+# (CP-11). Zero unaddressed amounts to declaring completion, so only then are the independent record
+# and a negative-test record for every addressed / replaced row required (CP-13 — "zero findings"
+# also reads as "the detector cannot detect").
+gate_adaptation() {
+  echo "=== Gate 7: Adaptation Ledger ==="
+  local pop rows missing_evidence missing_reason unaddressed indep
+  local covered missing_negative p
+  if [ ! -f "$ADAPTATION_LEDGER" ]; then
+    if work_plan_confirmed; then
+      fail "adaptation ledger not found: $ADAPTATION_LEDGER"
+    else
+      echo "  ⏸️  not created yet: ${ADAPTATION_LEDGER} (pick perspectives in Phase 0b, open rows in Phase 2)"
+    fi
+    gate_result "adaptation"
+    return 0
+  fi
+
+  # The coverage baseline definition. Which perspectives apply varies, so the choice itself is recorded (CP-11)
+  pop="$(population_defined)"
+  if [ -n "$pop" ]; then
+    pass "population defined: $pop"
+  elif work_plan_confirmed; then
+    fail "$ADAPTATION_LEDGER: population is not defined"
+    echo "      → The coverage baseline is selected from the perspective table. Record the counts in one line (CP-11):"
+    echo "        <!-- POPULATION-DEFINED: perspectives=9 (silent=6 misleading=3) excluded=4 -->"
+  else
+    echo "  ⏸️  coverage baseline not defined yet (fix it by Phase 0b; CP-11)"
+  fi
+
+  rows="$(ledger_rows | wc -l | tr -d ' ')"
+  if [ "$rows" -eq 0 ]; then
+    if work_plan_confirmed; then
+      fail "$ADAPTATION_LEDGER has no rows (Phase 2 must open them from the population)"
+    else
+      echo "  ⏸️  no rows yet: ${ADAPTATION_LEDGER} (opened in Phase 2 with the work-plan)"
+    fi
+    gate_result "adaptation"
+    return 0
+  fi
+  pass "$ADAPTATION_LEDGER: $rows rows"
+
+  # No row may lack path:line evidence (CP-3: never rely on an AI summary alone)
+  missing_evidence="$(ledger_rows | awk -F'|' '{ e=$5; gsub(/^[ \t]+|[ \t]+$/,"",e); if (e == "") printf "      %s\n", $2 }')"
+  if [ -n "$missing_evidence" ]; then
+    fail "$ADAPTATION_LEDGER: rows without evidence (path:line)"
+    echo "$missing_evidence"
+  else
+    pass "all rows carry evidence"
+  fi
+
+  # not_required and replaced require a reason, so an omission cannot become invisible
+  missing_reason="$(ledger_rows | awk -F'|' '
+    { d=$6; r=$7; gsub(/^[ \t]+|[ \t]+$/,"",d); gsub(/^[ \t]+|[ \t]+$/,"",r)
+      if (d ~ /(対応不要|not_required|代替実装|replaced)/ && r == "") printf "      %s (%s)\n", $2, d }')"
+  if [ -n "$missing_reason" ]; then
+    fail "$ADAPTATION_LEDGER: not_required / replaced rows without a reason or ADR"
+    echo "$missing_reason"
+  else
+    pass "not_required and replaced rows carry a reason"
+  fi
+
+  # Report the unaddressed count. Mid-Phase 3 it is naturally non-zero, so this is not a FAIL
+  unaddressed="$(ledger_rows | awk -F'|' '{ d=$6; gsub(/^[ \t]+|[ \t]+$/,"",d); if (d ~ /(未対応|unaddressed)/) c++ } END { print c+0 }')"
+  echo "  ℹ️  unaddressed: $unaddressed / ${rows} (Phase 4 requires zero)"
+
+  # Zero unaddressed amounts to declaring completion; require the independent and negative-test records
+  if [ "$unaddressed" -eq 0 ]; then
+    indep="$(independent_verification_rows | wc -l | tr -d ' ')"
+    if [ "$indep" -gt 0 ]; then
+      pass "unaddressed count is zero and an independent-verification record exists"
+    else
+      fail "unaddressed count is zero but no INDEPENDENT-VERIFICATION record in $DECISIONS_FILE"
+      echo "      → Zero unaddressed amounts to declaring completion; the producer must not self-certify."
+      echo "        Follow skills/migration-adversarial-review, verify independently and record it."
+    fi
+
+    # Negative tests for the detectors (CP-13). Before "zero findings" becomes the basis for
+    # "addressed", make the detector prove it can detect. Only addressed / replaced rows are in
+    # scope (not_required rows are already bound by the mandatory reason).
+    covered=" $(negative_test_ids | tr '\n' ' ')"
+    missing_negative=""
+    for p in $(ledger_detector_ids); do
+      case "$covered" in
+        *" $p "*) ;;
+        *) missing_negative="$missing_negative $p" ;;
+      esac
+    done
+    if [ -n "$missing_negative" ]; then
+      fail "unaddressed count is zero but these ledger rows have no NEGATIVE-TEST record:$missing_negative"
+      echo "      → \"Zero findings\" reads as \"none exist\" AND as \"the detector cannot detect\" (CP-13)."
+      echo "        Break the detector on purpose, confirm EXIT != 0, and record it in the"
+      echo "        \"Negative Test Record\" section of $DECISIONS_FILE. Break it at the same analysis"
+      echo "        stage as the failure you are measuring (for a compiler: a semantic, not syntax, error)."
+    else
+      pass "every addressed ledger row carries a negative-test record"
+    fi
+  fi
+  gate_result "adaptation"
+}
+
+# Print the payload of the coverage baseline marker (nothing when absent).
+# The scaffold carries only an illustrative example, never a real marker, so match strictly the proper
+# HTML comment form (the example has its hyphens separated and does not match). Avoids pitfall 7.
+population_defined() {
+  grep -oE '<!--[[:space:]]*POPULATION-DEFINED:[^>]*-->' "$ADAPTATION_LEDGER" 2>/dev/null \
+    | head -1 | sed -E 's/^<!--[[:space:]]*POPULATION-DEFINED:[[:space:]]*//; s/[[:space:]]*-->$//'
+}
+
+# Extract only the data rows of the adaptation ledger (skip rows inside comments and separators)
+ledger_rows() {
+  strip_comments "$ADAPTATION_LEDGER" | awk '/^\|[[:space:]]*AP-[0-9]/ { print }'
+}
+
+# Count the rows actually recorded in the "Independent Verification Record" section
+# (look at the substance of the record, not the existence of the section).
+# A table row containing a date (YYYY-MM-DD) counts as one record.
+independent_verification_rows() {
+  marker_rows "$DECISIONS_FILE" "INDEPENDENT-VERIFICATION" \
+    | awk '/[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]/ { print }'
+}
+
+# Return the identifiers of the ledger rows that require a negative test (CP-13).
+# Only [addressed / replaced] rows are in scope: those are the two dispositions that use
+# "zero findings" as evidence of a fix, while not_required is already bound by its mandatory
+# reason. Returns the perspective ID when present, otherwise the row ID (a finding absent from
+# the perspective table can still be opened as a row; CP-11).
+ledger_detector_ids() {
+  ledger_rows | awk -F'|' '
+    { d=$6; gsub(/^[ \t]+|[ \t]+$/,"",d)
+      if (d ~ /(未対応|unaddressed)/) next
+      if (d !~ /(対応済|実装済|addressed|代替実装|replaced)/) next
+      p=$3; gsub(/[^A-Za-z0-9-]/,"",p)
+      if (p ~ /^MP-[0-9]+$/) { print p; next }
+      r=$2; gsub(/[^A-Za-z0-9-]/,"",r)
+      if (r != "") print r
+    }' | sort -u
+}
+
+# Return the identifiers actually recorded in the "Negative Test Record" section
+# (look at the substance of the record, not the existence of the section).
+# Only rows carrying a date (YYYY-MM-DD) count, and examples inside HTML comments are excluded
+# (pitfall 7).
+negative_test_ids() {
+  marker_rows "$DECISIONS_FILE" "NEGATIVE-TEST" | awk -F'|' '
+    /[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]/ {
+      p=$2; gsub(/[^A-Za-z0-9-]/,"",p)
+      if (p ~ /^(MP|AP)-[0-9]+$/) print p
+    }' | sort -u
+}
+
+# --- Gate 8: Provenance of project information (never let an ⟨inferred⟩ value be a premise) ---
+# Values the AI inferred during the startup interview carry ⟨inferred⟩; values the user confirmed
+# carry ⟨confirmed⟩. An ⟨inferred⟩ value is a hypothesis (CP-3) and must not be used as a premise for
+# an ADR or the work-plan. Because the work-plan stands on these values,
+# **no ⟨inferred⟩ may remain once it is confirmed**.
+# While the work-plan is unconfirmed they are expected, so only the count is reported.
+gate_project() {
+  echo "=== Gate 8: Project Information Provenance ==="
+  local f found
+  found=0
+  for f in "${PROJECT_FILES[@]}"; do
+    if [ ! -f "$f" ]; then continue; fi
+    found=$((found+1))
+    check_project_file "$f"
+  done
+  if [ "$found" -eq 0 ]; then
+    echo "  ⏸️  Not applicable: no project information file found (check PROJECT_FILES)"
+  fi
+  gate_result "project"
+}
+
+# Check a single project information file. $1=file path
+check_project_file() {
+  local f="$1"
+  local inferred markers waived
+
+  # Count with HTML comments excluded (the marker's own explanatory text contains ⟨inferred⟩)
+  inferred="$(project_fields "$f" | LC_ALL=C grep -c '⟨inferred⟩' || true)"
+  [ -n "$inferred" ] || inferred=0
+  markers="$(project_fields "$f" | LC_ALL=C grep -cE '⟨(inferred|confirmed)⟩' || true)"
+  [ -n "$markers" ] || markers=0
+
+  # Mandatory input is a premise of the ATX run, so it must be confirmed once Phase 0a has started
+  if phase0a_started; then check_mandatory_inputs "$f"; fi
+
+  if ! work_plan_confirmed; then
+    if [ "$inferred" -gt 0 ]; then
+      echo "  ⚠️  ${f}: ${inferred} ⟨inferred⟩ value(s) — these are the AI's estimates, i.e. hypotheses (CP-3)"
+      echo "      Do not use them as premises for an ADR or the work-plan. Make them ⟨confirmed⟩ by Phase 0b."
+      echo "      (not a FAIL while the work-plan is unconfirmed)"
+    else
+      echo "  ℹ️  ${f}: no ⟨inferred⟩ values (not applicable while the work-plan is unconfirmed)"
+    fi
+    return 0
+  fi
+
+  # No markers at all = provenance cannot be verified. They were removed by hand
+  if [ "$markers" -eq 0 ]; then
+    fail "$f: no provenance markers found (cannot verify whether values are confirmed)"
+    echo "      → The markers may have been removed. Following the scaffold,"
+    echo "        and mark mandatory input with ⟨confirmed⟩ and derived information with ⟨inferred⟩."
+    return 0
+  fi
+
+  if [ "$inferred" -eq 0 ]; then
+    pass "$f: no ⟨inferred⟩ values remain"
+    return 0
+  fi
+
+  # Even if some remain, a recorded reason lets it pass (only an unrecorded remainder is rejected)
+  waived="$(grep -c 'INFERRED-REMAINS-OK' "$f" 2>/dev/null || true)"
+  [ -n "$waived" ] || waived=0
+  if [ "$waived" -gt 0 ]; then
+    pass "$f: ${inferred} ⟨inferred⟩ value(s) remain, but INFERRED-REMAINS-OK is recorded"
+  else
+    fail "$f: ${inferred} ⟨inferred⟩ value(s) remain after the work-plan was confirmed"
+    project_fields "$f" | LC_ALL=C grep -n '⟨inferred⟩' | sed 's/^/      /' | head -10
+    echo "      → ⟨inferred⟩ is a value the AI inferred, i.e. a hypothesis (CP-3). It must not be a premise"
+    echo "        for the work-plan. Replace it with the value confirmed by the analysis and mark it"
+    echo "        ⟨confirmed⟩. For anything that genuinely cannot be settled, recording the reason in"
+    echo "        that file lets it pass:"
+    echo "        <!-- INFERRED-REMAINS-OK: <field> — <why it cannot be settled> -->"
+  fi
+}
+
+# Check that no ⟨inferred⟩ remains in the mandatory input section. $1=file path
+check_mandatory_inputs() {
+  local n
+  n="$(mandatory_fields "$1" | LC_ALL=C grep -c '⟨inferred⟩' || true)"
+  [ -n "$n" ] || n=0
+  if [ "$n" -eq 0 ]; then
+    pass "$1: mandatory input confirmed"
+  elif grep -q 'INFERRED-REMAINS-OK' "$1" 2>/dev/null; then
+    pass "$1: ${n} mandatory input(s) ⟨inferred⟩, but INFERRED-REMAINS-OK is recorded"
+  else
+    fail "$1: ${n} mandatory input(s) still ⟨inferred⟩ after Phase 0a started"
+    mandatory_fields "$1" | LC_ALL=C grep '⟨inferred⟩' | sed 's/^/      /'
+    echo "      → Ask the user and mark it ⟨confirmed⟩ (an answer of \"undecided\" is fine)"
+  fi
+}
+
+# Extract only the field lines of the mandatory input section
+mandatory_fields() {
+  strip_comments "$1" | awk '/^#+ /{ s = ($0 ~ /必須入力|Mandatory input/) } s && /^- \*\*/'
+}
+
+# Has Phase 0a started (at least one git state or analysis run row)? True from 0a-3 on
+phase0a_started() {
+  [ -f "$ANALYSIS_RUNS" ] || return 1
+  [ -n "$(section_rows "$ANALYSIS_RUNS" 'git 状態の記録|Git state|分析実行の記録|Analysis runs')" ]
+}
+
+# Extract only the "field lines" that the provenance check applies to.
+# Only bullets of the form `- **Field:** value ⟨marker⟩` count.
+# The core discipline's prose also mentions the markers (and CLAUDE.md concatenates both),
+# so the lines must be narrowed by shape.
+# The explanation of the markers itself contains ⟨inferred⟩, so counting comments would FAIL forever
+# even after every value has been confirmed.
+project_fields() {
+  strip_comments "$1" | grep -E '^- \*\*'
+}
+
+# --- Utilities -----------------------------------------------------------
+do_list() {
+  echo "=== Expected Artifacts ==="
+  if [ "${#EXPECTED_ARTIFACTS[@]}" -eq 0 ]; then
+    echo "  (none registered)"
+  else
+    for f in "${EXPECTED_ARTIFACTS[@]}"; do echo "  $f"; done
+  fi
+}
+
+do_status() {
+  local tree
+  echo "=== Gate Applicability ==="
+  if work_plan_confirmed; then
+    echo "  work-plan: CONFIRMED ($WORK_PLAN) → build/smoke/integration/nonfunc apply for real"
+  else
+    echo "  work-plan: DRAFT ($WORK_PLAN) → build/smoke/integration/nonfunc are not applicable"
+  fi
+  echo "  expected list: ${#EXPECTED_ARTIFACTS[@]} item(s) / integration: ${#INTEGRATION_TESTS[@]} item(s)"
+  if assessment_applicable; then
+    echo "  assessment: applicable (analysis runs recorded → runs automatically at the end of all)"
+  else
+    echo "  assessment: not applicable (no analysis run recorded yet = Phase 0a not started)"
+  fi
+  echo "  modernized trees:"
+  for tree in "${MODERNIZED_TREES[@]}"; do
+    if [ -d "$tree/.git" ]; then
+      echo "    ✅ $tree"
+    else
+      echo "    ⏸️  $tree (not created yet)"
+    fi
+  done
+}
+
+do_build_cmd() {
+  echo "=== Build ==="
+  ( cd "$MODERNIZED" && eval "$BUILD_CMD" )
+}
+
+# --- Entry point ----------------------------------------------------------
+# --- Mechanical check of the Phase 0a completion conditions (not part of `all`) ---
+# Of the six Phase 0a completion conditions, only "the scope is fixed" needs human judgment.
+# The rest can be decided mechanically from what the ledgers say. Rather than making a human read a
+# checklist, run this once. For assessment-only work you still stop at the end of 0a to confirm, but when
+# the migration will proceed ("Assessment only" = no in migration-project.md) you do not stop: this
+# check stands in for it and 0b follows directly.
+do_assessment() {
+  echo "=== Phase 0a Completion Check ==="
+  local rows bad
+  # 0) Mandatory input is confirmed (a precondition of 0a-3)
+  for f in "${PROJECT_FILES[@]}"; do
+    if [ -f "$f" ]; then check_mandatory_inputs "$f"; fi
+  done
+  # 1) Repository inventory: data rows exist and every excluded row carries a reason
+  if [ ! -f "$REPO_INVENTORY" ]; then
+    fail "repository inventory not found: $REPO_INVENTORY"
+  else
+    rows="$(section_rows "$REPO_INVENTORY" 'リポジトリ一覧|Repositories' | wc -l | tr -d ' ')"
+    if [ "$rows" -eq 0 ]; then
+      fail "$REPO_INVENTORY: no repository rows (0a-1 must fill it in)"
+    else
+      pass "$REPO_INVENTORY: $rows repositories"
+      bad="$(section_rows "$REPO_INVENTORY" 'リポジトリ一覧|Repositories' | awk -F'|' '
+        { t=$8; r=$9; gsub(/^[ \t]+|[ \t]+$/,"",t); gsub(/^[ \t]+|[ \t]+$/,"",r)
+           if (t ~ /(×|x|X|no|No)/ && r == "") printf "      %s\n", $2 }')"
+      if [ -n "$bad" ]; then
+        fail "$REPO_INVENTORY: excluded repositories without a reason"
+        echo "$bad"
+      else
+        pass "exclusions carry a reason"
+      fi
+    fi
+    # The 0a-2 stop point. User confirmation is a human act, so only its record is checked.
+    # The scaffold carries the choice "pending / done (YYYY-MM-DD)", so a real date is required
+    if grep -qE '(利用者確認|User confirmation).*(済|done).*[0-9]{4}-[0-9]{2}-[0-9]{2}' "$REPO_INVENTORY" 2>/dev/null; then
+      pass "the scope was confirmed with the user (0a-2)"
+    else
+      fail "$REPO_INVENTORY: the 0a-2 user confirmation is not recorded"
+    fi
+  fi
+
+  # 2) Analysis run ledger: runs are recorded with an exit code and an output location
+  if [ ! -f "$ANALYSIS_RUNS" ]; then
+    fail "analysis run ledger not found: $ANALYSIS_RUNS"
+  else
+    rows="$(section_rows "$ANALYSIS_RUNS" '分析実行の記録|Analysis runs' | wc -l | tr -d ' ')"
+    if [ "$rows" -eq 0 ]; then
+      fail "$ANALYSIS_RUNS: no analysis runs recorded"
+    else
+      pass "$ANALYSIS_RUNS: $rows runs recorded"
+      bad="$(section_rows "$ANALYSIS_RUNS" '分析実行の記録|Analysis runs' | awk -F'|' '
+        { src=$4; rc=$7; done_=$8; out=$11
+           gsub(/^[ \t]+|[ \t]+$/,"",src); gsub(/^[ \t]+|[ \t]+$/,"",rc)
+           gsub(/^[ \t]+|[ \t]+$/,"",done_); gsub(/^[ \t]+|[ \t]+$/,"",out)
+           if (out == "") { printf "      %s: no output location\n", $2; next }
+           if (src !~ /(executed|実行)/) next
+           if (rc == "") { printf "      %s: no exit code\n", $2; next }
+           if (done_ !~ /(完了|complete)/ || done_ ~ /(未完了|incomplete)/)
+             printf "      %s: not judged complete (%s)\n", $2, (done_ == "" ? "(empty)" : done_) }')"
+      if [ -n "$bad" ]; then
+        fail "$ANALYSIS_RUNS: runs not judged complete, or missing an exit code or output location"
+        echo "$bad"
+        echo "      → Completion is not judged by the exit code. Use non-empty files or terminal artifacts (0a-5)"
+      else
+        pass "every run is judged complete and records its exit code and output location"
+      fi
+    fi
+
+    # 3) Git restoration. ATX cuts a staging branch, so failing to return contaminates later work
+    rows="$(section_rows "$ANALYSIS_RUNS" 'git 状態の記録|Git state' | wc -l | tr -d ' ')"
+    if [ "$rows" -eq 0 ]; then
+      echo "  ⏸️  no git state rows (correct when nothing was executed, only ingested)"
+    else
+      bad="$(section_rows "$ANALYSIS_RUNS" 'git 状態の記録|Git state' | awk -F'|' '
+        { v=$8; gsub(/^[ \t]+|[ \t]+$/,"",v)
+           if (v !~ /(一致|match)/ || v ~ /(不一致|mismatch)/) printf "      %s: %s\n", $2, (v == "" ? "(empty)" : v) }')"
+      if [ -n "$bad" ]; then
+        fail "$ANALYSIS_RUNS: repositories not confirmed back on their original branch and HEAD"
+        echo "$bad"
+      else
+        pass "all repositories confirmed back on their original branch and HEAD"
+      fi
+    fi
+  fi
+
+  # 4) The entry point to the results. Check that the links *resolve*, not that link syntax exists
+  if [ ! -f "$ANALYSIS_README" ]; then
+    fail "analysis entry point not found: $ANALYSIS_README"
+  else
+    check_md_links "$ANALYSIS_README"
+  fi
+
+  # 5) Records updated. With no date at all it is still the scaffold
+  for f in "$SESSION_CONTEXT" "$WORKLOG"; do
+    if [ ! -f "$f" ]; then
+      fail "not found: $f"
+    elif grep -qE '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]' "$f" 2>/dev/null; then
+      pass "$f: updated"
+    else
+      fail "$f: still the scaffold (no dated entry)"
+    fi
+  done
+  gate_result "assessment"
+}
+
+# Check that the relative links in a Markdown file resolve. $1=file path.
+# **Never ask the host filesystem** (CP-12): `test -e` treats `Content/images/x.jpg` and
+# `Content/Images/x.jpg` as the same file on a case-insensitive filesystem such as macOS's default,
+# so it misses exactly the mismatches that 404 on Linux. A strict string comparison against git's
+# file list gives the same answer on every host. A link to a directory counts as resolving if any
+# file exists underneath it.
+check_md_links() {
+  local md="$1" base tracked links link target n nmiss missing
+  base="$(dirname "$md")"
+  tracked="$(git ls-files -co --exclude-standard 2>/dev/null)"
+  links="$( { grep -oE '\]\([^)#][^)]*\)' "$md" 2>/dev/null | sed -E 's/^\]\(//; s/\)$//'
+             grep -oE 'href="[^"#][^"]*"' "$md" 2>/dev/null | sed -E 's/^href="//; s/"$//'; } \
+    | sed -E 's/[[:space:]].*$//; s/#.*$//; s#^\./##' \
+    | grep -vE '^[a-z][a-z0-9+.-]*:' | grep -vE '^$' | sort -u)"
+  if [ -z "$links" ]; then
+    fail "$md: no relative links to the analysis results"
+    return 0
+  fi
+  n=0; nmiss=0; missing=""
+  while IFS= read -r link; do
+    [ -n "$link" ] || continue
+    n=$((n+1))
+    target="${base}/${link}"
+    case "$link" in
+      */) if echo "$tracked" | awk -v p="$target" 'index($0,p)==1 { found=1 } END { exit !found }'; then continue; fi ;;
+      *)  if echo "$tracked" | grep -qFx "$target"; then continue; fi ;;
+    esac
+    nmiss=$((nmiss+1)); missing="${missing}      ${link}
+"
+  done < <(printf '%s\n' "$links")
+  if [ "$nmiss" -gt 0 ]; then
+    fail "$md: $nmiss of $n link targets do not exist"
+    printf '%s' "$missing"
+    echo "      → Judged by a strict comparison against git's file list, so a case mismatch fails here too (CP-12)."
+    echo "        A target outside git (matched by .gitignore) also fails, so keep the artifacts tracked."
+  else
+    pass "$md: all $n link targets exist"
+  fi
+}
+
+# Decide whether `all` may run assessment (i.e. whether Phase 0a has been started).
+# Putting it into `all` unconditionally would make it fail from day one and breed the habit of
+# "of course it fails", so it only runs once at least one analysis run has been recorded.
+assessment_applicable() {
+  local rows
+  [ -f "$ANALYSIS_RUNS" ] || return 1
+  rows="$(section_rows "$ANALYSIS_RUNS" '分析実行の記録|Analysis runs' | wc -l | tr -d ' ')"
+  [ "$rows" -gt 0 ]
+}
+
+# Extract only the data rows of the table under a heading. $1=file $2=heading regex.
+# Only rows after the separator are considered (so the header row is excluded), and scaffold examples
+# (those containing `<`) are dropped. Headings differ per language, so the regex lists both, since code
+# lines must be identical in both languages.
+# Comment removal is delegated to strip_comments. A blank line left behind by the removal is not
+# treated as the end of the table (a comment block inside a table must not drop the data rows
+# that follow it).
+section_rows() {
+  strip_comments "$1" | awk -v sec="$2" '
+    /^[[:space:]]*$/ { next }
+    /^#+ / { inSec = ($0 ~ sec) ? 1 : 0; body = 0; next }
+    !inSec { next }
+    /^\|[[:space:]]*:?-{2,}/ { body = 1; next }
+    body && /^\|/ { if ($0 !~ /</) print; next }
+    body { body = 0 }
+  '
+}
+
+case "${1:-all}" in
+  build)        gate_build ;;
+  smoke)        gate_smoke ;;
+  integration)  gate_integration ;;
+  nonfunc)      gate_nonfunc ;;
+  repo-sync)    gate_repo_sync ;;
+  knowledge)    gate_knowledge ;;
+  adaptation)   gate_adaptation ;;
+  project)      gate_project ;;
+  assessment)   do_assessment ;;
+  list)         do_list ;;
+  status)       do_status ;;
+  run-build)    do_build_cmd ;;
+  all)
+    gate_build
+    gate_smoke
+    gate_integration
+    if [ "$RUN_NONFUNC" = "1" ]; then gate_nonfunc; else
+      echo "=== Gate 4: Non-functional Test ==="
+      echo "  ⏸️  Not applicable: RUN_NONFUNC=0 (correct if Phase 1 judged non-functional work out of scope)"
+      gate_na
+    fi
+    gate_repo_sync
+    gate_knowledge
+    gate_adaptation
+    gate_project
+    if assessment_applicable; then do_assessment; fi
+    echo ""
+    echo "=== ALL VERIFICATION GATES PASSED (substantive: ${SUBSTANTIVE_GATES} gates / ${TOTAL_CHECKS} checks, not-applicable: ${NA_GATES} gates) ==="
+    if [ "$NA_GATES" -gt 0 ]; then
+      echo "    ⚠️  Some gates were not applicable. Report the substantive counts above, not 'all gates PASS'."
+    fi
+    ;;
+  *)
+    echo "Usage: $0 [build|smoke|integration|nonfunc|repo-sync|knowledge|adaptation|project|assessment|list|status|run-build|all]" >&2
+    exit 2
+    ;;
+esac

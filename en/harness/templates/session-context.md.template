@@ -1,0 +1,92 @@
+# Session Context
+
+<!-- 
+This file is used by the AI agent to carry state across sessions.
+Update it at the end of each session and load it at the start of the next session.
+-->
+
+## Last Checkpoint
+
+- **Date:** YYYY-MM-DD HH:MM
+- **Git ref:** <migration_commit> / modernized=<modernized_commit>
+- **Phase:** Phase X — <phase_name>
+- **Stage:** Implementation / Verification / Debugging
+
+## Repository Sync Status (updated via session-end checklist)
+
+<!-- Result of running the core discipline "session-end checklist" (skills/migration-session). Do not leave unpushed changes unattended -->
+| Repository | Latest commit | Uncommitted changes | Remote | Push status |
+|-----------|-------------|--------------|---------|---------|
+| migration (this project) | <sha> | none / yes(<details>) | <remote or not set> | ✅ pushed / ⚠️ not pushed |
+| modernized tree | <sha> | none / yes(<details>) | <remote or not set> | ✅ pushed / ⚠️ not pushed |
+
+
+## In-progress Investigation / Working-tree State
+
+<!-- Write a declaration line **before the first change** (skills/migration-troubleshooting).
+     `This turn (...)` is a shared anchor that is not translated.
+     On close-out, **copy the declaration into the worklog before removing it** (it is not permanent otherwise).
+     Uncommitted changes with this section empty = a discipline violation. -->
+- **This turn (<T_prompt>):** <what you are about to do (write this before touching code)>
+- **Working-tree ledger (classification of uncommitted changes):**
+  | File | diagnostic(revert) / candidate-fix(verify) | note |
+  |------|--------------------------------------------|------|
+  | <path> | <class> | <note> |
+
+
+## Ported Repository Starting-Point Information
+
+<!-- Recorded after running setup-modernized.sh in Phase 3 Step 1 (for reproducibility) -->
+- **Migration source:** <path> (git / non-git)
+- **Starting base-ref:** <tag or SHA>
+- **modernize-base SHA:** <sha>
+- **modernize branch:** modernize/<target-os>-<arch>
+- **Diff check:** `(cd ../<PRODUCT>-modernized && git diff modernize-base..HEAD)`
+
+## Current Status
+
+<!-- Track progress per Plan-ID as a checklist -->
+- ✅ <Plan-ID>: <summary of completed work>
+- 🔄 <Plan-ID>: <work in progress> ← **CURRENT**
+- ⏸️ <Plan-ID>: <not started>
+
+## Blockers
+
+- None
+<!-- or: <blocker_description> -->
+
+## Next Actions
+
+1. <specific next action: file name + line number + what to do>
+2. <the next one>
+3. <the next one>
+
+## Accumulated Learnings (This Session)
+
+<!-- Learnings gained during this session. Add generalizable ones to practices.md -->
+- <learning_1>
+- <learning_2>
+
+## Decision Queue
+
+<!-- ADR drafts already presented in Tier 2 (HOLD / stop-and-confirm zone) and awaiting user decision. Once decided, record formally in decisions.md and remove the row -->
+| # | Decision item | ADR draft presented on | Status | Blocked work |
+|---|---------|-----------------|------|-------------------|
+| <N> | <what> | YYYY-MM-DD | ⏳ awaiting decision / ✅ approved→ADR-N | <none / Step X> |
+
+## Verification Queue
+
+<!-- Items that have been fixed but not yet verified -->
+| Plan-ID | Fix description | Verification method | Result |
+|---------|---------|---------|------|
+| <ID> | <what> | <how_to_verify> | ⏳ not verified |
+
+---
+
+## Status Icons
+
+- ✅ = Complete (test-verified)
+- 🔄 = In progress
+- ⏸️ = Not started
+- 🚫 = Blocked
+- ⚠️ = Needs attention (partially working but has unverified items)

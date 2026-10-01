@@ -1,0 +1,189 @@
+# Note: This is a reference example showing all options; install.sh does not install it (what gets installed is transform-config-cca-template.yaml).
+# =============================================================================
+# ATX Transform Config Template: Solaris→Linux Porting Analysis
+# =============================================================================
+# 
+# Usage:
+#   1. Copy this file and fill in the project-specific values
+#   2. Replace <PLACEHOLDER> with actual values
+#   3. In <PROJECT_SPECIFIC_NOTES> of "Project-Specific Additional Viewpoints", list target-specific focus points as bullets
+#      (examples: datetime handling to watch closely, libraries with large major-version diffs and their main changes,
+#      presence of tests/specs). If there are none, delete the section
+#   4. Run with: atx custom def exec -g file://transform-config.yaml -x -t
+#
+# Notes:
+#   - ATX analysis results are only "general findings" and must be verified against actual code (CP-3)
+#   - ATX output is used as input to the work-plan, but must not be transcribed into the plan as-is
+#   - additionalPlanContext must be kept within **4096 bytes** (an ATX upper-limit constraint)
+#     If exceeded it will be truncated, so compress findings to key points only
+#   - ATX execution is a long-running command on the scale of tens of minutes. The AI agent runs it
+#     in the background and monitors progress by tailing the log (see harness core discipline "Long-Running Commands")
+#
+# =============================================================================
+#
+# codeRepositoryPath is the relative path from the root of the records repository (atx is run at the root of the records repository)
+
+codeRepositoryPath: <RELATIVE_PATH_TO_SOURCE>
+transformationName: AWS/comprehensive-codebase-analysis
+buildCommand: noop
+additionalPlanContext: |
+  ## Output Language
+  Output all documents in English.
+
+  ## Purpose of This Analysis
+  Analyze this codebase as the subject of a <SOURCE_OS> → <TARGET_OS> migration.
+  The analysis results will be used as input to the "work-plan", so output in the format below.
+
+  ## Target Environment
+
+  | Item | Old Environment (Source) | New Environment (Target) |
+  |------|----------------|----------------|
+  | OS | <SOURCE_OS_VERSION> | <TARGET_OS_VERSION> |
+  | Architecture | <SOURCE_ARCH> | <TARGET_ARCH> |
+  | Compiler | <SOURCE_CC_VERSION> | <TARGET_CC_VERSION> |
+  | OpenSSL | <SOURCE_OPENSSL_VERSION> | <TARGET_OPENSSL_VERSION> |
+  | Other libraries | <SOURCE_LIBS> | <TARGET_LIBS> |
+
+  # =========================================================================
+  # Section 1: Analysis Viewpoints
+  # =========================================================================
+
+  ## 1. OS-Specific Code
+  - Source-OS-specific conditional compilation (#ifdef __sun, #ifdef solaris, etc.)
+  - Source-OS-specific system call usage
+  - Source-OS-specific compiler pragmas/attributes
+  - OS detection and feature tests in configure scripts
+
+  ## 2. Impact of Architecture Migration (e.g., 32-bit → 64-bit)
+  - Dependencies on long type / pointer size
+  - Changes in struct size and padding
+  - Code depending on sizeof
+  - Storing types into fixed-size buffers
+
+  ## 3. Year 2038 Problem (time_t)
+  - All usages of time_t
+  - Downcasts from time_t to int/int32_t
+  - Timestamp serialization (headers, files)
+  - **Dates hardcoded as fixed strings (e.g., year=2037)** ← easy to miss
+  - Expiration date calculations, HTTP header date/time handling
+
+  ## 4. Behavioral Changes in Dependent Libraries [MOST IMPORTANT]
+
+  ⚠️ Investigate not "whether the API was removed" but "whether the behavior of the same API has changed."
+  Even if compilation succeeds and the code partially works, look for problems that only surface in specific state transitions.
+
+  ### Investigation Procedure
+  1. Identify libraries whose major version changes between source and target.
+  2. Check each library's CHANGES/NEWS (for every major-version boundary crossed).
+  3. **Enumerate newly introduced compatibility options/flags, and report why each was added.**
+     - A newly introduced option = "a switch to restore the old behavior" = a signal that "there is broken behavior."
+  4. **Report items whose default value has changed.**
+  5. For each item above, identify which parts of this codebase are affected.
+
+  ### Report Format (Behavioral Changes)
+  | Library | Change | Old Behavior | New Behavior | Compatibility Option | Affected Location |
+  |-----------|---------|--------|--------|--------------|---------|
+  | (example) OpenSSL 3.x | unexpected EOF handling | SSL_ERROR_WANT_READ | SSL_ERROR_SSL | SSL_OP_IGNORE_UNEXPECTED_EOF | ngx_ssl_recv() |
+
+  ## 5. Verifying Macro Values in the Platform config.h
+
+  When copying the source OS's config.h to create one for the target OS, you must verify
+  that each macro's value is still correct for the target OS. The following deserve particular attention:
+
+  ### Report Format (Macro Value Verification)
+  | Macro | Source OS Value | Correct Target OS Value | Basis (man page, etc.) | Impact if Incorrect |
+  |--------|-----------|---------------|------------|-------------------|
+  | (example) NGX_HAVE_INHERITED_NONBLOCK | 1 | 0 | man 2 accept | Socket becomes blocking → SSL_read blocks for 6 seconds |
+
+  Target macro categories:
+  - accept inheritance (O_NONBLOCK)
+  - sendfile arguments/return value
+  - Default behavior of the event mechanism
+  - Socket option names (TCP_CORK vs TCP_NOPUSH)
+
+  ## 6. Event-Driven I/O Model
+
+  - Usages of the source event model (event ports, kqueue, /dev/poll, etc.)
+  - Conversion path to the target event model (epoll, etc.)
+  - **Report whether the existing code assumes edge-triggered or level-triggered semantics.**
+    - If the read handler has a loop that reads until EAGAIN → assumes edge-triggered
+    - If the design expects to return after a single read/write → assumes level-triggered
+    - This determination becomes a design constraint for the event module implementation.
+
+  ## 7. Build Compatibility
+  - Usage of deprecated or removed APIs
+  - Locations that become problems when compiler warnings are promoted to errors
+  - Direct member access made impossible due to opaque-type conversion
+
+  ## 8. Character Encoding / Locale
+  - Usages of setlocale()
+  - Usage of locale-dependent libc functions
+  - Encoding of the source files themselves
+  - Policy: keep the internal encoding as-is, do not convert it
+
+  # =========================================================================
+  # Section 2: Known Differences Between Source and Target (Imported Knowledge)
+  # =========================================================================
+
+  ## OS Differences (Pre-Investigated Knowledge)
+
+  | Keyword | Solaris | Linux |
+  |-----------|---------|-------|
+  | Atomic | atomic.h (atomic_add_32_nv=new value, atomic_cas_32=old value) | __atomic_fetch_add=old value, __atomic_compare_exchange_n=bool |
+  | Event I/O | port_create/port_associate/port_getn (auto-dissociate, timespec) | epoll_create1/epoll_ctl/epoll_wait (persistent, ms) |
+  | High-resolution time | gethrtime() → uint64_t ns directly | clock_gettime(CLOCK_MONOTONIC) → struct timespec |
+  | Thread | thr_create(6 args)/thr_join(3 args) | pthread_create(4 args)/pthread_join(2 args) |
+  | SharedMem | Common POSIX. Differs in shmmax | Same as left |
+  | Signal | Common POSIX. Differs in SIGRTMIN range | Same as left |
+  | FileSystem | Explicit stat64(), attropen() | _FILE_OFFSET_BITS=64, getxattr() |
+  | Network | TCP_NOPUSH, SO_EXCLBIND | TCP_CORK, EAGAIN==EWOULDBLOCK |
+  | Process | /proc=struct, RLIMIT_VMEM | /proc=text, RLIMIT_AS |
+  | Build | -lsocket -lnsl, -mt, __sun | Not needed (integrated into glibc), -pthread, __linux__ |
+  | Locale | ja_JP.eucJP/PCK | ja_JP.UTF-8, -finput-charset |
+  | Doors | door_create/door_call | Unix Domain Sockets |
+  | Contract | /system/contract, ctfs | cgroups v2 |
+  | kstat | kstat_open/kstat_lookup | /proc, /sys |
+  | DTrace | dtrace(1) | eBPF/bpftrace |
+  | RBAC | usermod -P | capabilities, SELinux |
+  | FMA | fmadm | rasdaemon, mcelog |
+  | ZFS | zpool/zfs | ext4/xfs+LVM or OpenZFS |
+  | libumem | umem_alloc/umem_free | jemalloc, tcmalloc |
+  | SMF | svcadm/svcs | systemd |
+  | libc ABI | Recompilation required, has strlcpy | struct stat differs, no strlcpy (glibc<2.38) |
+
+  # =========================================================================
+  # Section 3: Expected Output Format
+  # =========================================================================
+
+  ## Expected Output
+
+  ### A. Architecture Overview
+  - Module structure, event model, data flow
+
+  ### B. List of Migration-Affected Locations
+  Output in the following format (granular enough to be used directly for each work-plan remediation item):
+
+  | # | Category | File:Line | Current Code | Required Fix | Priority | Verification Method |
+  |---|---------|------------|-------------|-----------|--------|---------|
+
+  - The "Verification Method" column is mandatory: how to confirm the fix is correct (command / expected output)
+  - "Priority" is one of: Build-blocking (P0) / Runtime error (P1) / Warning or inefficiency (P2) / Optional improvement (P3)
+
+  ### C. List of Behavioral Change Impacts (results from Section 1-4)
+  - Library behavioral change table
+  - config.h macro value verification table
+
+  ### D. Dependency Map
+  - Dependencies between fixes (e.g., B is possible only after A is fixed)
+  - Recommended Phase breakdown
+
+  ### E. Risk Assessment
+  - Enumeration of "builds successfully but breaks at runtime" patterns (emphasize this, as it is the easiest to overlook)
+
+  # =========================================================================
+  # Section 4: Project-Specific Additional Viewpoints
+  # =========================================================================
+
+  ## Project-Specific Additional Viewpoints
+
+  <PROJECT_SPECIFIC_NOTES>
