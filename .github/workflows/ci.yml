@@ -1,0 +1,88 @@
+name: CI
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, labeled, unlabeled]
+  push:
+    branches: [main]
+
+permissions: {}
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  checks:
+    name: Repository checks
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: i18n sync (ja/ -> en/)
+        run: tools/check-i18n.sh
+
+      - name: verify.sh helper tests
+        run: tools/test-verify-helpers.sh
+
+      # check-i18n.sh covers ja/ and en/ only; the language-independent scripts are checked here.
+      - name: Shell syntax (install.sh, tools/)
+        run: |
+          status=0
+          for f in install.sh tools/*.sh; do
+            bash -n "$f" || { echo "::error file=$f::bash -n failed"; status=1; }
+          done
+          exit "$status"
+
+  changelog:
+    name: CHANGELOG entry
+    if: github.event_name == 'pull_request' && !contains(github.event.pull_request.labels.*.name, 'skip-changelog')
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Require an Unreleased entry for user-visible changes
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          changed="$(git diff --name-only "$BASE_SHA...$HEAD_SHA")"
+          if ! printf '%s\n' "$changed" | grep -Eq '^(ja/|install\.sh$)'; then
+            echo "No change under ja/ or install.sh; no CHANGELOG entry required."
+            exit 0
+          fi
+          if ! printf '%s\n' "$changed" | grep -qx 'CHANGELOG.md'; then
+            echo "::error file=CHANGELOG.md::ja/ or install.sh changed, but CHANGELOG.md did not. Add an entry under '## Unreleased', or apply the 'skip-changelog' label if the change is not user-visible."
+            exit 1
+          fi
+          if ! grep -Eq '^## Unreleased' CHANGELOG.md; then
+            echo "::error file=CHANGELOG.md::CHANGELOG.md has no '## Unreleased' section."
+            exit 1
+          fi
+
+  zizmor:
+    name: Workflow security (zizmor)
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: zizmorcore/zizmor-action@45d7276c9ca790aabd705e31ca99c6185c3e76dd # v0.8.1
+        with:
+          advanced-security: false
+          annotations: true
