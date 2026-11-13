@@ -8,6 +8,12 @@ PATCH = documentation, wording or error fixes only.
 
 ---
 
+## Unreleased
+
+- CI: a GitHub Actions workflow runs `tools/check-i18n.sh`, `tools/test-verify-helpers.sh`,
+  `bash -n` on `install.sh` and `tools/`, a CHANGELOG entry check, and a zizmor scan of the
+  workflows on every pull request. Dependabot keeps the pinned actions up to date.
+
 ## 0.11.0 — 2026-10-02
 
 Initial public release.
