@@ -63,6 +63,12 @@ Contributions via pull requests are much appreciated. Before sending us a pull r
 4. If your change touches documentation, you changed `ja/` (not `en/`) — see
    "Repository Layout and Translation Policy" above.
 5. `tools/check-i18n.sh` passes, and all shell scripts pass `bash -n`.
+6. `tools/test-verify-helpers.sh` passes when you changed `harness/verify.sh.template`.
+7. `CHANGELOG.md` has an entry under `## Unreleased` when you changed `ja/` or `install.sh`.
+
+The CI workflow (`.github/workflows/ci.yml`) runs checks 5 to 7 on every pull request,
+together with a security scan of the workflows themselves. A maintainer can apply the
+`skip-changelog` label to a pull request whose change is not user-visible.
 
 To send us a pull request, please:
 
