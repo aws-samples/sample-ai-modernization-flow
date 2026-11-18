@@ -8,7 +8,7 @@ HOLD-N	HOLD-N	Tier 2 stop trigger ID. Never translate or renumber
 LL-N	LL-N	project-local lessons-learned ID
 ADR-N	ADR-N	architecture decision record ID
 Tier	Tier	Tier 0 / Tier 1 / Tier 2. Keep as-is
-Phase	Phase	Phase 1-4. Keep as-is
+Phase	Phase	Phase 0a / 0b / 1-4. Keep as-is
 Step	Step	Keep as-is
 Mode A / Mode B / Mode C	Mode A / Mode B / Mode C	baseline capture modes. Keep as-is. Always carry the gloss below
 モードA（旧環境で実測）	Mode A (measure on the old environment)	gloss required at every mention
