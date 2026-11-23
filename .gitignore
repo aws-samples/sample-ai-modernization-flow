@@ -10,3 +10,6 @@ Thumbs.db
 
 # Scratch output
 *.log
+
+# Local scratch space (agent work files, test kits)
+.work/
