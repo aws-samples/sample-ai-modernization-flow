@@ -1,6 +1,6 @@
 # AI Modernization Flow
 
-**Version 0.11.0** ([CHANGELOG](CHANGELOG.md))
+**Version 0.12.0** ([CHANGELOG](CHANGELOG.md))
 
 > 日本語版（原本）: **[ja/README.md](ja/README.md)**
 

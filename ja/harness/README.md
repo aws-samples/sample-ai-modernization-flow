@@ -211,7 +211,7 @@ install.shはファイルを削除しない。フレームワークから消え�
 `verify.sh`の2行目には生成元の版が刻まれている。版を照合する手段はこの行だけである。
 
 ```bash
-grep '^# ai-modernization-flow ' <records>/verify.sh   # → # ai-modernization-flow 0.11.0
+grep '^# ai-modernization-flow ' <records>/verify.sh   # → # ai-modernization-flow 0.12.0
 ```
 
 `--update-project`はこの行を読んで更新元の版を表示する。刻印がない場合（この行を削除した場合など）は`unstamped`と表示される。
