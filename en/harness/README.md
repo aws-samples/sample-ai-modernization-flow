@@ -226,7 +226,7 @@ install.sh never deletes files. A file that disappeared from the framework is on
 Line 2 of `verify.sh` stamps the version it was generated from. This line is the only means of checking the version.
 
 ```bash
-grep '^# ai-modernization-flow ' <records>/verify.sh   # → # ai-modernization-flow 0.11.0
+grep '^# ai-modernization-flow ' <records>/verify.sh   # → # ai-modernization-flow 0.12.0
 ```
 
 `--update-project` reads this line and shows the version it is updating from. If there is no stamp (for example,

@@ -1,10 +1,10 @@
-README.md	d4aad68515d5	0ffaa7efe8c1
+README.md	ab228b17a1ad	d5f8ccc92058
 docs/authoring-playbook.md	6bca58eba5e6	97ecdc9cc18c
 docs/concepts.md	04b846e04cbf	678ef9006643
 docs/for-engineers.md	06857e0018c7	d1651795985b
 docs/how-to-use.md	a9057a23f806	08ec4577fabb
 docs/overview-for-business.md	e4725e14df7c	cb7a4490388a
-harness/README.md	d7ce1475bdbd	f12998cb3817
+harness/README.md	5dfa490b4905	7b01f2c210d6
 harness/core/migration-core.md	b03e3267fc6b	387f887189bd
 harness/setup-modernized.sh	831ddadbf27e	3390bd55d37d
 harness/skills/migration-adr/SKILL.md	726512cbc70b	3dc209285c0c

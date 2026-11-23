@@ -1,6 +1,6 @@
 # AI Modernization Flow
 
-**Version 0.11.0**（[CHANGELOG](../CHANGELOG.md)）
+**Version 0.12.0**（[CHANGELOG](../CHANGELOG.md)）
 
 AI Modernization Flowは、レガシーシステムの移行とモダナイゼーションを、AIエージェントに規律を守らせて進めるためのワークフローである。
 移行の型（Method）を、ドメイン知見（Playbook）とAI実行規律（Harness）によって実行できる形にしている。
