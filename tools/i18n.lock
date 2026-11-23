@@ -2,7 +2,7 @@ README.md	d4aad68515d5	0ffaa7efe8c1
 docs/authoring-playbook.md	e540185c9778	173bd518613f
 docs/concepts.md	04b846e04cbf	678ef9006643
 docs/for-engineers.md	18cda0da5197	b01f4b46bc81
-docs/how-to-use.md	7a10b5ae2943	00c1cfdca911
+docs/how-to-use.md	a9057a23f806	08ec4577fabb
 docs/overview-for-business.md	e4725e14df7c	cb7a4490388a
 harness/README.md	d7ce1475bdbd	f12998cb3817
 harness/core/migration-core.md	b03e3267fc6b	387f887189bd
@@ -18,9 +18,9 @@ harness/skills/migration-verification/SKILL.md	1b7232acdf81	c97324671e31
 harness/templates/baseline-behavior.md.template	5f199a8d4b7e	4209ca184b2f
 harness/templates/decisions.md.template	a1000e750245	5e2c91e8602b
 harness/templates/lessons-learned.md.template	e380b0bb448d	868322e876cd
-harness/templates/migration-project.md.template	91e54d84ede5	51a5e1938a95
-harness/templates/project-seed/00-analysis/analysis-runs.md	d4ddf5c2d446	3bdc51ea069b
-harness/templates/project-seed/00-analysis/repository-inventory.md	812111270129	e4e0adebd877
+harness/templates/migration-project.md.template	8328ff9b7174	aee8c1cfc313
+harness/templates/project-seed/00-analysis/analysis-runs.md	4fe9a7903e73	df64bc83b3bb
+harness/templates/project-seed/00-analysis/repository-inventory.md	e3f48f0501d6	d78ebbb58533
 harness/templates/project-seed/01-plan/adaptation-ledger.md	44a99007f81d	04caa974826d
 harness/templates/project-seed/01-plan/environment-diff-table.md	8b8647be6948	94ea823b4fbe
 harness/templates/project-seed/01-plan/work-plan.md	de91b3d2d5ac	8768606bf3fd
@@ -33,9 +33,11 @@ harness/tools/turn-log.sh	4a50c040bfc1	f2da12568fdf
 harness/tools/turn-report.sh	8e38c76a1780	d89274b201bf
 harness/tools/work-declaration-guard.sh	50b16ab75a77	26c1a9ccb36c
 harness/verify.sh.template	c3cb92e98e6f	736245ee7f08
-method/analysis-procedure.md.template	2169b07a7cc1	fecf3068eca3
-method/flow.md	191b8c1ad252	993422a67488
+method/analysis-procedure.md.template	a489ab329c0c	fa1ca32102e4
+method/flow.md	d2b5e1878ff5	5a07156f851b
 method/practices-common.md	16f4ee9bcc09	f4c58a945f11
+method/tools/check-mermaid.sh	b825bfd70af6	6df5650eb848
+method/tools/fetch-cca-definition.sh	65eba580cc76	8aedb49cfcd7
 method/tools/generate-html.sh	c208c6d9b781	c4bec31732b2
 playbooks/clang-solarisx86-to-amznlinux/README.md	678b236d2a6f	8c3f9c449098
 playbooks/clang-solarisx86-to-amznlinux/analysis-appendix.md	0383d44c7ff9	bbee75701857
