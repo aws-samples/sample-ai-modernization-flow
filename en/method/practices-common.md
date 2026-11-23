@@ -79,7 +79,7 @@ two Playbooks is 29-72 body lines and 175-215 bytes per summary row).
 |--------|---------------|--------------------------|
 | One summary row | 300 bytes | If it does not fit in one line, it belongs in the body |
 | One entry's body | 80 lines | Split the detail into `docs/reference/` and leave the essentials plus a pointer |
-| Entries per file | 15 | Consider consolidating or deleting (see below) |
+| Entries per file (added by the project) | 15 | Consider consolidating or deleting (see below). Unprefixed `CP-N` / `DP-N` are not counted |
 
 - The limits are adjustable in the project's `verify.sh` (`KNOWLEDGE_MAX_*`)
 - **A line-count limit is not language-neutral** (for the same content, English runs about
