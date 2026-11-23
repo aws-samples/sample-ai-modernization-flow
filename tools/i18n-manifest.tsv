@@ -45,6 +45,8 @@ method/analysis-procedure.md.template	en/method/analysis-procedure.md.template	t
 method/flow.md	en/method/flow.md	translate	-
 method/practices-common.md	en/method/practices-common.md	translate	-
 method/tools/generate-html.sh	en/method/tools/generate-html.sh	translate-comments	-
+method/tools/check-mermaid.sh	en/method/tools/check-mermaid.sh	translate-comments	-
+method/tools/fetch-cca-definition.sh	en/method/tools/fetch-cca-definition.sh	translate-comments	-
 playbooks/clang-solarisx86-to-amznlinux/README.md	en/playbooks/clang-solarisx86-to-amznlinux/README.md	translate	-
 playbooks/clang-solarisx86-to-amznlinux/analysis-appendix.md	en/playbooks/clang-solarisx86-to-amznlinux/analysis-appendix.md	translate	-
 playbooks/clang-solarisx86-to-amznlinux/baseline-themes.md	en/playbooks/clang-solarisx86-to-amznlinux/baseline-themes.md	translate	-

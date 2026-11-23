@@ -121,6 +121,11 @@ Before the run the AI checks the `atx` install status, AWS authentication and re
 missing it sets it up following the [official documentation](https://docs.aws.amazon.com/transform/latest/userguide/custom-get-started.html).
 SSO or temporary IAM role credentials are recommended for authentication.
 
+If the ATX environment is not available, the AI proposes switching to agent-direct analysis.
+In this mode the AI itself runs the public definition, published by AWS, that the CCA uses, and the output has the same structure as ATX's.
+The AI proposes it when a CCA is enough and the size fits within the AI reading everything. You decide whether to switch (it is recorded in an ADR).
+Whether or not ATX is available, you can have the work proceed by agent-direct analysis by asking for it (for example: "Run Phase 0a with agent-direct analysis").
+
 ### Phase 0b: Consolidating the assessment results
 
 The AI integrates the per-repository results into a form readable as the system as a whole.
@@ -278,6 +283,8 @@ Resuming work. Read 03-worklog/session-context.md to confirm the state from last
 | I feel I am repeating the same failure | The summary tables of `docs/knowledge/lessons-learned.md` and `practices*.md` |
 | The knowledge files are growing large | `./verify.sh knowledge` reports the over-limit condition. Consolidate the content, or record the reason for exceeding |
 | `atx: command not found` / ATX authentication or region errors | Follow the installation procedure in the official documentation and redo the Phase 0a-2c checks |
+| The ATX environment just cannot be set up | You can switch to agent-direct analysis (Phase 0a-5b). The AI checks the conditions and proposes it |
+| A diagram shows "Syntax error" in the HTML | `check-mermaid.sh` points at the failing page. Fix the diagram in the Markdown and redo the HTML conversion (Phase 0a-6) |
 | I do not want to redo the analysis | Existing results can be ingested (Phase 0a-2b). Just give the path to the results |
 | `turn-log.tsv` does not grow in Kiro | Kiro was launched without `--agent migration`. Relaunch it with the command in section 8 |
 | `turn-log.tsv` is not created on Windows | The hook is not starting. See "Running on Windows" in [harness/README.md](../harness/README.md) |

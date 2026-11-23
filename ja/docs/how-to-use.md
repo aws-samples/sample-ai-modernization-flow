@@ -104,6 +104,11 @@ ATXはツールの仕様上、分析時に対象リポジトリへ書き込む�
 AIは実行前に`atx`の導入状況、AWSの認証、リージョンを確認する。不足があれば[公式ドキュメント](https://docs.aws.amazon.com/transform/latest/userguide/custom-get-started.html)に沿って整える。
 認証には、SSOかIAMロールの一時クレデンシャルを使うことを推奨する。
 
+ATXの環境が利用できない場合は、AIがエージェント直接分析への切り替えを提案する。
+AWSが公開するCCAが使う公開の指示書を、AIが自分で実行する方式で、成果物はATXと同じ構造になる。
+AIが提案するのは、CCAだけで足り、規模がAIの全量読みに収まる場合である。切り替えるかはあなたが判断する（ADRに残る）。
+ATXを使えるかどうかに関わらず、あなたが指示すればエージェント直接分析で進められる（例:「Phase 0a はエージェント直接分析で進めてください」）。
+
 ### Phase 0b: アセスメント結果の統合
 
 AIはリポジトリごとの結果を、システム全体として読める形に統合する。
@@ -237,6 +242,8 @@ AIの宣言が正しいかを確かめる手段は2つある。1つは独立検�
 | 同じ失敗を繰り返している気がする | `docs/knowledge/lessons-learned.md`と`practices*.md`のサマリ表 |
 | 知見ファイルが大きくなってきた | `./verify.sh knowledge`が上限超過を報告する。内容を統合するか、超過の理由を記録する |
 | `atx: command not found` / ATXの認証・リージョンエラー | 公式ドキュメントの導入手順に従い、Phase 0a-2cの確認をやり直す |
+| ATXの環境がどうしても整わない | エージェント直接分析に切り替えられる（Phase 0a-5b）。AIが条件を確かめて提案する |
+| HTMLで図が「Syntax error」になる | `check-mermaid.sh`がエラーのページを示す。Markdownの図を直してHTML化をやり直す（Phase 0a-6） |
 | 分析をやり直したくない | 既存の結果を取り込める（Phase 0a-2b）。結果のパスを渡すだけでよい |
 | Kiroで`turn-log.tsv`の記録が増えない | `--agent migration`を付けずに起動している。第8節のコマンドで起動し直す |
 | Windowsで`turn-log.tsv`が生成されない | hookが起動していない。[harness/README.md](../harness/README.md)の「Windowsで使う場合」を参照 |

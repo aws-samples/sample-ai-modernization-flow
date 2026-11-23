@@ -41,7 +41,11 @@ Phase 0a: Assessment — running the code analysis   ★ you can stop here (stop
      * When using results that already exist, this step itself is not performed (0a-2b). Not knowing the
        commit the analysis saw is the default and is covered by the Phase 2 corroboration (CP-3).
        Never stop for that confirmation
+     * When ATX cannot run, switch to agent-direct analysis if its conditions hold (0a-5b; HOLD-7).
+       When the user explicitly asks for it, use agent-direct analysis regardless of the conditions.
+       The agent runs the same definition and produces the same structure as ATX
   → Record provenance, exit codes and the source-branch return check in analysis-runs.md
+  → Convert to HTML, then render and check the mermaid diagrams (check-mermaid.sh; 0a-6)
   → Generate 00-analysis/README.md (the entry point to the deliverables)
   == Phase gate == the completion conditions are checked mechanically by `./verify.sh assessment`
      Whether to stop is decided by "Assessment only" in migration-project.md:
