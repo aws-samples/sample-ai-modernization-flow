@@ -603,6 +603,19 @@ map_place() {  # $1=root
 }
 
 # --- Resolve the --update-project target *before* installing anything -----------
+# Resolve the records repository from a `*-migration-*` glob: accept exactly one **directory**.
+# Files are skipped -- a workspace may hold an archive such as `<name>-migration-<date>.tgz`
+# next to the repository, and counting it would make the match ambiguous.
+find_records_dir() {  # $@ = glob matches; prints the directory, or nothing
+  local only="" n=0 c
+  for c in "$@"; do
+    [ -d "$c" ] || continue
+    only="$c"; n=$((n+1))
+  done
+  [ "$n" -eq 1 ] && printf '%s\n' "$only"
+  return 0
+}
+
 # A wrong target must cost nothing. Resolving it here means the rules are not reinstalled and
 # no file is touched when the records repository cannot be identified.
 UPDATE_DIR=""
@@ -616,7 +629,7 @@ if [ "$DO_UPDATE" -eq 1 ]; then
     else
       set -- "$WORKSPACE"/*-migration-*
     fi
-    if [ "$#" -eq 1 ] && [ -d "$1" ]; then UPDATE_DIR="$1"; fi
+    UPDATE_DIR="$(find_records_dir "$@")"
   fi
   [ -n "$UPDATE_DIR" ] || { msg e_up_nodir >&2; exit 1; }
   # verify.sh is the one file every records repository has. Without it this is not a project
@@ -809,7 +822,10 @@ fi
 # happen quietly. Details and pitfalls: harness/README.md and the script headers.
 if [ "$TURN_LOG" -eq 1 ]; then
   RECORDS_DIR=""
-  if [ -d "$PROJECT_DIR" ]; then
+  if [ -n "$UPDATE_DIR" ]; then
+    # --update-project already resolved (or was given) the target; never search again
+    RECORDS_DIR="$UPDATE_DIR"
+  elif [ -d "$PROJECT_DIR" ]; then
     RECORDS_DIR="$PROJECT_DIR"
   else
     # --skip-project on a later day: the date inside PROJECT_DIR no longer matches.
@@ -819,7 +835,7 @@ if [ "$TURN_LOG" -eq 1 ]; then
     else
       set -- "$WORKSPACE"/*-migration-*
     fi
-    if [ "$#" -eq 1 ] && [ -d "$1" ]; then RECORDS_DIR="$1"; fi
+    RECORDS_DIR="$(find_records_dir "$@")"
   fi
   [ -n "$RECORDS_DIR" ] || { msg e_tl_records >&2; exit 1; }
 
