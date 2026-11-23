@@ -90,7 +90,7 @@ A new Playbook starts at `DP-1`. Since only one Playbook enters a single project
 overlap with other Playbooks.
 
 The summary table may start empty and be appended to as you work.
-The volume limits (300 bytes per summary row / 80 body lines / 15 entries) are checked by
+The volume limits (300 bytes per summary row / 80 body lines / 15 entries added by the project) are checked by
 `./verify.sh knowledge`.
 
 ### 5. To take it into the framework itself: register it for i18n and create the English version
@@ -217,7 +217,8 @@ that is no longer needed is left as a gap.
 If a tool improvement turns a perspective into ①, do not delete the row; change the `Kind` to ①.
 When taking in a project's `DP-<project>-N`, assign a new unprefixed number and write the origin in
 the body.
-If entries exceed the limit of 15, consider consolidating. If you change the transform-config,
+The Playbook's unprefixed `DP-N` are not counted by the project's gate, but consider consolidating
+once they exceed 15. If you change the transform-config,
 re-confirm that it fits within 4096 bytes.
 
 ### Reflecting it into a running project

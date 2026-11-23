@@ -446,7 +446,7 @@ gate_knowledge() {
 # Check a single knowledge file. $1=file path
 check_knowledge_file() {
   local f="$1"
-  local long_summary long_body entries reviewed
+  local long_summary long_body total entries reviewed
 
   # Is any summary row too long? (content that does not fit in one line belongs in the body)
   # Lines inside an HTML comment are not counted: the scaffold's example entries live in comments, so
@@ -485,8 +485,16 @@ check_knowledge_file() {
   # appending rule or the gate is taken as authoritative. Fixed at `^## `, a lessons-learned file
   # written as `### LL-N` would be reported as "0 entries" and the whole volume discipline would be
   # disabled for that file (a vacuous pass).
-  entries="$(strip_comments "$f" | LC_ALL=C awk '
+  # The entry limit applies **only to entries the project added** (`CP-<project>-N` / `DP-<project>-N` / `LL-N`).
+  # Unprefixed framework `CP-N` / `DP-N` are not counted. Counting them would move a new project towards the
+  # limit with no additions every time the framework adds a CP, and one addition would then fail it (the
+  # framework manages its own volume).
+  total="$(strip_comments "$f" | LC_ALL=C awk '
     /^##+ (CP|DP|LL)-/ { c++ } END { print c+0 }' 2>/dev/null || true)"
+  [ -n "$total" ] || total=0
+  entries="$(strip_comments "$f" | LC_ALL=C awk '
+    /^##+ LL-/ { c++; next }
+    /^##+ (CP|DP)-/ && !/^##+ (CP|DP)-[0-9]+(:|[[:space:]]|$)/ { c++ } END { print c+0 }' 2>/dev/null || true)"
   [ -n "$entries" ] || entries=0
   if [ "$KNOWLEDGE_MAX_ENTRIES" -gt 0 ] && [ "$entries" -gt "$KNOWLEDGE_MAX_ENTRIES" ]; then
     # Do not judge by the presence of the word. The scaffold and the "Quantitative Discipline" prose
@@ -496,18 +504,18 @@ check_knowledge_file() {
     reviewed="$(LC_ALL=C grep -cE '<!--[[:space:]]*KNOWLEDGE-REVIEWED:[[:space:]]*[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]' "$f" 2>/dev/null || true)"
     [ -n "$reviewed" ] || reviewed=0
     if [ "$reviewed" -gt 0 ]; then
-      pass "$f: $entries entries (over ${KNOWLEDGE_MAX_ENTRIES}, but KNOWLEDGE-REVIEWED is recorded)"
+      pass "$f: $entries project entries (over ${KNOWLEDGE_MAX_ENTRIES}, but KNOWLEDGE-REVIEWED is recorded)"
     else
-      fail "$f: $entries entries exceeds ${KNOWLEDGE_MAX_ENTRIES} and no KNOWLEDGE-REVIEWED record"
+      fail "$f: $entries project entries exceeds ${KNOWLEDGE_MAX_ENTRIES} and no KNOWLEDGE-REVIEWED record"
       echo "      → Consider consolidating or deleting. If you decide not to, record it at the top of the file:"
       echo "        <!-- KNOWLEDGE-REVIEWED: YYYY-MM-DD (N entries, consolidation deferred: <reason>) -->"
     fi
-  elif [ "$entries" -eq 0 ]; then
+  elif [ "$total" -eq 0 ]; then
     echo "  ⚠️  ${f}: 0 entries — nothing was found to check"
     echo "      Confirm that entries are written as H2 (## CP-N: / ## DP-N: / ## LL-N:)."
     echo "      Zero more likely means 'nothing was found' than 'the limit was met'."
   else
-    pass "$f: $entries entries within limit"
+    pass "$f: $entries project entries within limit (framework entries not counted: $((total - entries)))"
   fi
 }
 

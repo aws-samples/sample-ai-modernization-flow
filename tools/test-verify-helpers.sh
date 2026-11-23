@@ -54,6 +54,40 @@ expect_eq() {
 
 # --- fixtures ----------------------------------------------------------------
 # Every fixture carries the traps that actually broke a real project's gates.
+make_knowledge() {  # $1=dir. Framework entries, project entries and the traps around them
+  cat > "$1/practices-common.md" <<'FIXTURE'
+# Practices fixture
+
+<!-- Example inside a comment must not count:
+## CP-demo-99: example
+-->
+
+| ID | Title |
+|----|-------|
+| CP-1 | a |
+
+## CP-1: framework entry
+body
+## CP-12: framework entry with two digits
+body
+### CP-3 framework entry at H3 without a colon
+body
+## CP-demo-1: project entry
+body
+## CP-2024x-1: project whose name starts with a digit
+body
+FIXTURE
+  cat > "$1/lessons-learned.md" <<'FIXTURE'
+# Lessons fixture
+
+## LL-1: first
+body
+### LL-2: second
+body
+FIXTURE
+  : > "$1/empty.md"
+}
+
 make_ledger() {  # $1=path
   cat > "$1" <<'FIXTURE'
 # Adaptation ledger fixture
@@ -209,6 +243,35 @@ run_suite() {  # $1=label, $2=template path
   expect_eq "$label: section_rows stops at the next heading" \
     "0" "$(section_rows "$ANALYSIS_RUNS" '分析実行の記録|Analysis runs' | grep -c 'repo-c' || true)"
 
+
+  # 8. Knowledge gate: the entry limit counts only what the project added.
+  #    Unprefixed framework CP-N / DP-N are skipped; CP-<project>-N, DP-<project>-N and LL-N
+  #    count, including a project name that starts with a digit. Examples inside comments never count.
+  local ksrc kout
+  ksrc="$(extract_fn "$tpl" check_knowledge_file)"
+  if [ -z "$ksrc" ]; then
+    err "$label: cannot extract check_knowledge_file() from the template"
+  else
+    eval "$ksrc"
+    pass() { echo "PASS $*"; }
+    fail() { echo "FAIL $*"; }
+    make_knowledge "$tmp"
+    KNOWLEDGE_MAX_SUMMARY_BYTES=300; KNOWLEDGE_MAX_ENTRY_LINES=80; KNOWLEDGE_MAX_ENTRIES=15
+    kout="$(check_knowledge_file "$tmp/practices-common.md")"
+    expect_eq "$label: knowledge counts project entries only (framework entries skipped)" \
+      "1" "$(printf '%s\n' "$kout" | grep -c '2 project entries within limit (framework entries not counted: 3)' || true)"
+    kout="$(check_knowledge_file "$tmp/lessons-learned.md")"
+    expect_eq "$label: knowledge counts LL-N at H2 and H3" \
+      "1" "$(printf '%s\n' "$kout" | grep -c '2 project entries within limit' || true)"
+    KNOWLEDGE_MAX_ENTRIES=1
+    kout="$(check_knowledge_file "$tmp/practices-common.md")"
+    expect_eq "$label: knowledge still FAILS when project entries exceed the limit" \
+      "1" "$(printf '%s\n' "$kout" | grep -c '^FAIL .*2 project entries exceeds 1' || true)"
+    KNOWLEDGE_MAX_ENTRIES=15
+    kout="$(check_knowledge_file "$tmp/empty.md")"
+    expect_eq "$label: knowledge warns on a file with no entries at all" \
+      "1" "$(printf '%s\n' "$kout" | grep -c '0 entries' || true)"
+  fi
   rm -rf "$tmp"
 }
 

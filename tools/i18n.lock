@@ -1,7 +1,7 @@
 README.md	d4aad68515d5	0ffaa7efe8c1
-docs/authoring-playbook.md	e540185c9778	173bd518613f
+docs/authoring-playbook.md	6bca58eba5e6	97ecdc9cc18c
 docs/concepts.md	04b846e04cbf	678ef9006643
-docs/for-engineers.md	18cda0da5197	b01f4b46bc81
+docs/for-engineers.md	06857e0018c7	d1651795985b
 docs/how-to-use.md	a9057a23f806	08ec4577fabb
 docs/overview-for-business.md	e4725e14df7c	cb7a4490388a
 harness/README.md	d7ce1475bdbd	f12998cb3817
@@ -32,10 +32,10 @@ harness/templates/subtask-plan.md.template	bfb98af049c8	4a4072e88585
 harness/tools/turn-log.sh	4a50c040bfc1	f2da12568fdf
 harness/tools/turn-report.sh	8e38c76a1780	d89274b201bf
 harness/tools/work-declaration-guard.sh	50b16ab75a77	26c1a9ccb36c
-harness/verify.sh.template	c3cb92e98e6f	736245ee7f08
+harness/verify.sh.template	f5899df2289d	304c895e93d7
 method/analysis-procedure.md.template	a489ab329c0c	fa1ca32102e4
 method/flow.md	d2b5e1878ff5	5a07156f851b
-method/practices-common.md	16f4ee9bcc09	f4c58a945f11
+method/practices-common.md	0a9fe3a7f969	98764a56e082
 method/tools/check-mermaid.sh	b825bfd70af6	6df5650eb848
 method/tools/fetch-cca-definition.sh	65eba580cc76	8aedb49cfcd7
 method/tools/generate-html.sh	c208c6d9b781	c4bec31732b2
