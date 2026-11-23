@@ -431,7 +431,7 @@ gate_knowledge() {
 # 知見ファイル1本の検査。$1=ファイルパス
 check_knowledge_file() {
   local f="$1"
-  local long_summary long_body entries reviewed
+  local long_summary long_body total entries reviewed
 
   # サマリ表の1行が長すぎないか（一言に収まらない内容は本文へ）
   # HTMLコメント内は数えない。雛形の記載例がコメント内にあるため、数えると新規インストール時点で
@@ -469,8 +469,15 @@ check_knowledge_file() {
   # 見出しレベルは H2/H3 の双方を受ける（`^##+`）。雛形の追記ルールとゲートのどちらが正でも
   # 動くようにするため。`^## ` 固定だと、`### LL-N` と書いた lessons-learned が
   # 「0 entries」と報告され、量の規律が丸ごと無効化される（空虚な合格）。
-  entries="$(strip_comments "$f" | LC_ALL=C awk '
+  # エントリ数の上限は**プロジェクトが追記したエントリだけ**に掛ける（`CP-<project>-N` / `DP-<project>-N` / `LL-N`）。
+  # フレームワーク由来の無印 `CP-N` / `DP-N` は数えない。数えると、フレームワークが CP を足すたびに
+  # 新規プロジェクトのゲートが追記ゼロのまま上限に近づき、1件の追記で落ちる（本体の量は本体側で管理する）。
+  total="$(strip_comments "$f" | LC_ALL=C awk '
     /^##+ (CP|DP|LL)-/ { c++ } END { print c+0 }' 2>/dev/null || true)"
+  [ -n "$total" ] || total=0
+  entries="$(strip_comments "$f" | LC_ALL=C awk '
+    /^##+ LL-/ { c++; next }
+    /^##+ (CP|DP)-/ && !/^##+ (CP|DP)-[0-9]+(:|[[:space:]]|$)/ { c++ } END { print c+0 }' 2>/dev/null || true)"
   [ -n "$entries" ] || entries=0
   if [ "$KNOWLEDGE_MAX_ENTRIES" -gt 0 ] && [ "$entries" -gt "$KNOWLEDGE_MAX_ENTRIES" ]; then
     # 語の存在では判定しない。雛形と本文の「量の規律」の説明文にも KNOWLEDGE-REVIEWED の語が
@@ -479,18 +486,18 @@ check_knowledge_file() {
     reviewed="$(LC_ALL=C grep -cE '<!--[[:space:]]*KNOWLEDGE-REVIEWED:[[:space:]]*[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]' "$f" 2>/dev/null || true)"
     [ -n "$reviewed" ] || reviewed=0
     if [ "$reviewed" -gt 0 ]; then
-      pass "$f: $entries entries (over ${KNOWLEDGE_MAX_ENTRIES}, but KNOWLEDGE-REVIEWED is recorded)"
+      pass "$f: $entries project entries (over ${KNOWLEDGE_MAX_ENTRIES}, but KNOWLEDGE-REVIEWED is recorded)"
     else
-      fail "$f: $entries entries exceeds ${KNOWLEDGE_MAX_ENTRIES} and no KNOWLEDGE-REVIEWED record"
+      fail "$f: $entries project entries exceeds ${KNOWLEDGE_MAX_ENTRIES} and no KNOWLEDGE-REVIEWED record"
       echo "      → 統合・削除を検討すること。統合しない判断をする場合はファイル冒頭に記録する:"
       echo "        <!-- KNOWLEDGE-REVIEWED: YYYY-MM-DD (N entries, consolidation deferred: <理由>) -->"
     fi
-  elif [ "$entries" -eq 0 ]; then
+  elif [ "$total" -eq 0 ]; then
     echo "  ⚠️  ${f}: 0 entries — 検査対象が見つからなかった"
     echo "      追記形式が H2（## CP-N: / ## DP-N: / ## LL-N:）になっているか確認すること。"
     echo "      0件は「基準を満たした」ではなく「見つからなかった」可能性が高い。"
   else
-    pass "$f: $entries entries within limit"
+    pass "$f: $entries project entries within limit (framework entries not counted: $((total - entries)))"
   fi
 }
 

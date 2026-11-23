@@ -99,7 +99,7 @@ For that reason the volume of knowledge is capped by numbers and checked with
 |------|------|-------|
 | One summary row | 300 bytes | If it does not fit in one line, move it to the body |
 | One entry's body | 80 lines | Split the detail into `reference/`, leaving the essentials and a pointer in the body |
-| Entries per file | 15 | Consider consolidating. If you do not, recording the reason as `KNOWLEDGE-REVIEWED` lets it pass |
+| Entries per file (added by the project; unprefixed `CP-N` / `DP-N` are not counted) | 15 | Consider consolidating. If you do not, recording the reason as `KNOWLEDGE-REVIEWED` lets it pass |
 
 ## 4. How quality is assured
 
