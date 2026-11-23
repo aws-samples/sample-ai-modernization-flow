@@ -345,7 +345,7 @@ Corroborate every item in 2-1.
    cd 00-analysis/<repo-id>
    ../generate-html.sh ATXDocumentation ATXDocumentation_html
    ```
-   - Requires `pandoc` (`brew install pandoc` / `sudo dnf install pandoc`) and `python3`
+   - Requires `pandoc` (`brew install pandoc` / `sudo dnf install pandoc` / on Windows, unpack the official zip onto the PATH) and `python3` (`python` also works on Windows)
    - The sidebar is generated from the actual file tree (not a fixed list, so no dead links)
    - ``` mermaid ``` blocks are rendered as diagrams (`mermaid.min.js` is bundled locally, so it works
      offline). **ASCII-art diagrams do not become diagrams** — requiring mermaid via the 0a-4 directive

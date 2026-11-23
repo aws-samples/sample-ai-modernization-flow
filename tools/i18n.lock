@@ -33,12 +33,12 @@ harness/tools/turn-log.sh	4a50c040bfc1	f2da12568fdf
 harness/tools/turn-report.sh	8e38c76a1780	d89274b201bf
 harness/tools/work-declaration-guard.sh	50b16ab75a77	26c1a9ccb36c
 harness/verify.sh.template	f5899df2289d	304c895e93d7
-method/analysis-procedure.md.template	572ffdc0f6c9	f70ca5cdaf34
+method/analysis-procedure.md.template	a489ab329c0c	fa1ca32102e4
 method/flow.md	d2b5e1878ff5	5a07156f851b
 method/practices-common.md	0a9fe3a7f969	98764a56e082
 method/tools/check-mermaid.sh	b825bfd70af6	6df5650eb848
 method/tools/fetch-cca-definition.sh	65eba580cc76	8aedb49cfcd7
-method/tools/generate-html.sh	1f644c18cdb1	355f257400da
+method/tools/generate-html.sh	c208c6d9b781	c4bec31732b2
 playbooks/clang-solarisx86-to-amznlinux/README.md	678b236d2a6f	8c3f9c449098
 playbooks/clang-solarisx86-to-amznlinux/analysis-appendix.md	0383d44c7ff9	bbee75701857
 playbooks/clang-solarisx86-to-amznlinux/baseline-themes.md	3f8860035467	8ab38242c892

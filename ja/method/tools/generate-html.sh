@@ -4,7 +4,8 @@
 # 使い方: ./generate-html.sh <入力ディレクトリ> <出力ディレクトリ>
 # 例:     cd 00-analysis/<repo-id> && ../generate-html.sh ATXDocumentation ATXDocumentation_html
 #
-# 依存: pandoc（brew install pandoc / sudo dnf install pandoc）、python3（サイドバー生成）
+# 依存: pandoc（brew install pandoc / sudo dnf install pandoc / Windows は公式zipを展開してPATHへ）、
+#       python3（サイドバー生成。Windows では実体が `python` のことが多いため両方を探す）
 #
 # 注意:
 #   - 入力・出力ディレクトリは相対パスで指定すること（絶対パス非対応）
@@ -66,6 +67,24 @@ else
   echo "警告: mermaid.min.js のダウンロードに失敗。CDN 参照にフォールバックします（閲覧時にインターネットが必要）" >&2
 fi
 
+# pandoc テンプレートの受け渡しに使う一時ディレクトリ
+# `--template=/dev/stdin` は使わない。Windows のネイティブ pandoc.exe は MSYS の
+# /dev/stdin を解釈できず、データディレクトリ内の `templates\0.html` を探して exit 97
+# で落ちる（Git Bash）。実ファイルを渡せば三者（macOS/Linux/Windows）で動く
+TPL_DIR="$(mktemp -d 2>/dev/null || mktemp -d -t genhtml)" || { echo "エラー: 一時ディレクトリを作れない" >&2; exit 1; }
+trap 'rm -rf "$TPL_DIR"' EXIT
+TPL="$TPL_DIR/page.html"
+
+# シンタックスハイライトを切る。pandoc 3.x の新しい版は ```mermaid を「言語 mermaid」として
+# ハイライトし、`<pre class="mermaid"><code>` ではなく `<div class="sourceCode">…
+# <pre class="sourceCode mermaid">` を出すため、閲覧側の JS も、図の数を数える検証も、図を 1 件も
+# 認識しなくなる。フラグ名は版で変わったので pandoc に聞いて選ぶ
+if pandoc --help 2>/dev/null | grep -q -- "--syntax-highlighting"; then
+  NOHL="--syntax-highlighting=none"   # pandoc 3.14+（--no-highlight は deprecated 警告）
+else
+  NOHL="--no-highlight"               # それ以前
+fi
+
 # 各MDファイルをHTML変換
 cd "$SRC"
 find . -name "*.md" | while read f; do
@@ -83,7 +102,7 @@ find . -name "*.md" | while read f; do
     mermaidsrc="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"
   fi
 
-  pandoc "$f" -o "$outfile" --standalone --template=/dev/stdin <<TEMPLATE
+  cat > "$TPL" <<TEMPLATE
 <!DOCTYPE html>
 <html lang="ja">
 <head>
@@ -113,6 +132,7 @@ document.addEventListener('DOMContentLoaded', function () {
 </body>
 </html>
 TEMPLATE
+  pandoc "$f" -o "$outfile" --standalone "$NOHL" --template="$TPL"
 done
 cd ..
 
@@ -126,7 +146,26 @@ done
 # 実際に生成された .html をツリーから走査してサイドバーを作る。
 # 固定リストではないため dead link や孤立ページが出ない（リポジトリ差異にも追従）。
 # トップレベルディレクトリごとに日本語セクション名を付与し、既知ファイルは日本語表示名にする。
-python3 - "$DST" <<'PY'
+# python を解決する。候補は必ず実行して検証する（Windows の `python3` は WindowsApps の
+# App Execution Alias スタブのことがあり、`command -v` では見つかるが実行できない。
+# 実体は `python` という名前で入っているのが普通）。install.sh の resolve_python と同じ方式
+_python_works() { "$1" -c '' >/dev/null 2>&1; }
+PYBIN=""
+for cand in /usr/bin/python3 /usr/local/bin/python3 /opt/homebrew/bin/python3; do
+  if [ -x "$cand" ] && _python_works "$cand"; then PYBIN="$cand"; break; fi
+done
+if [ -z "$PYBIN" ]; then
+  for cand in "$(command -v python3 2>/dev/null || true)" "$(command -v python 2>/dev/null || true)"; do
+    if [ -n "$cand" ] && _python_works "$cand"; then PYBIN="$cand"; break; fi
+  done
+fi
+[ -n "$PYBIN" ] || { echo "エラー: 実行できる python3/python が見つからない（サイドバー生成に必要）" >&2; exit 1; }
+
+# 日本語を出力するため stdout/stderr を UTF-8 に固定する（Windows の既定は cp932/cp1252 で
+# UnicodeEncodeError になる。index.html 自体は encoding="utf-8" で書いている）
+export PYTHONIOENCODING="utf-8"
+
+"$PYBIN" - "$DST" <<'PY'
 import os, sys, html, re
 
 dst = sys.argv[1]
@@ -254,7 +293,9 @@ sidebar.querySelectorAll('a').forEach(a => a.addEventListener('click', function(
 </body>
 </html>
 '''
-with open(os.path.join(dst, "index.html"), "w", encoding="utf-8") as fh:
+# newline="\n": Windows のテキストモードでは \n が \r\n に変換され、pandoc が書く他のページ
+# （LF）と改行が揃わない。生成物を diff で比較できるよう LF に固定する
+with open(os.path.join(dst, "index.html"), "w", encoding="utf-8", newline="\n") as fh:
     fh.write(index)
 print(f"サイドバー項目数: {len(pages)} / デフォルト: {default_page}")
 PY
