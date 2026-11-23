@@ -3,7 +3,9 @@
 <!-- Phase 0a-1 で作成する。分析対象を確定するための台帳。
      .git の有無だけに頼らず、ビルドルート（pom.xml / package.json / Makefile /
      CMakeLists.txt / go.mod / *.csproj / requirements.txt 等）も検出する。
-     深追いはしない（構造の詳細分析は ATX に委ねる）。 -->
+     深追いはしない（構造の詳細分析は ATX に委ねる）。
+     規模概算の LOC は、ビルド出力・依存物（target/・node_modules/ 等）を除いて数える
+     （エージェント直接分析（0a-0）の規模の条件の判定に使う）。 -->
 
 ## 対象ルート
 

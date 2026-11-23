@@ -25,6 +25,18 @@ Phase 3（実装）以降は `01-plan/work-plan.md` に従う。
 | **既存結果を使う** | ATX の分析結果が既にある（他チーム実施 / アセスメント成果物として受領 / 同プロジェクトで 0a 済み） | 0a-1 → 0a-2 → **0a-2b** → 0a-6 |
 | **分析を実行する** | 分析結果がない | 0a-1 → 0a-2 → 0a-3 → 0a-4 → 0a-5 → 0a-6 |
 | **一部だけ既存結果を使う** | 一部のリポジトリだけ結果がある | 上記の併用。**不足分だけ実行する（全か無かにしない）** |
+| **エージェント直接分析**（ATX を使わない） | ATX が実行できず下の条件をすべて満たす、または**利用者が明示的に指定した** | 0a-1 → 0a-2 → 0a-2c → 0a-3 → **0a-4b** → **0a-5b** → 0a-6 |
+
+**エージェント直接分析の条件**（すべて満たすときに限る。0a-2c で判定する）:
+1. ATX が実行できない（0a-2c が通らず、ATX実行環境の見通しが立たない）
+2. 規模がエージェントの全量読みに収まる。0a-1 の LOC を ADR に記録して利用者が判断する。
+   **100 万行超は精度が不十分になる可能性がある**（指示書が大規模と判定する基準）
+3. 必要な分析が CCA だけである（BRE が必要なら ATX が必要）
+4. 利用者が承認した（HOLD-7。ADR に残す）
+
+**利用者が明示的に指定した場合は、上の条件を満たさなくても実施する。** ATX の事前確認（0a-2c）は行わず、
+`curl`・`git`・`sha256sum` か `shasum` があることだけを確認する。指定されたことを ADR に残す。
+規模が条件 2 を超えるときは、精度が不十分になる可能性を伝える。
 
 **既存結果を使う場合は `0a-3`（git 準備）・`0a-4`（transform-config 作成）・`0a-5`（ATX 実行）を行わない。**
 実行しないのだから git の準備も設定も不要である。ここを省かないと、事前に結果を用意した意味がなくなる。
@@ -45,6 +57,7 @@ Phase 3（実装）以降は `01-plan/work-plan.md` に従う。
      可能だが、並列実行はできない**（後述 0a-5）
 3. 各行に記録する: ID / パス / git管理の有無 / ビルドシステム / 推定役割
    （frontend/backend/batch/shared/tooling）/ 規模概算（ファイル数・LOC）/ 分析対象・対象外＋理由。
+   LOC はビルド出力・依存物（`target/`・`node_modules/` 等）を除いて数える（エージェント直接分析の条件 2 の判定に使う）。
 4. **深追いしない。** 構造の詳細分析は ATX に委ねる。ここは列挙と判別だけ。
 
 ### 0a-2: 分析対象の確認【停止点（軽い HOLD）】
@@ -86,6 +99,10 @@ Phase 3（実装）以降は `01-plan/work-plan.md` に従う。
 - 認証は IAM Identity Center（SSO）か IAM ロールの一時クレデンシャルを優先する。IAM ユーザーの長期アクセスキーは最後の手段とする
 - アクセスキー類を会話・ログ・記録に貼らせない
 - Windows では native PowerShell と Git Bash のどちらからも `atx` が PATH で見えることを確認する
+- **`atx --version` だけで済ませない。** 認証経路で落ちることに実行時まで気づかず、切り替えの判断が遅れる
+
+**通らず、ATX実行環境構築の見通しが立たない場合:** 0a-0 のエージェント直接分析の条件を確かめ、利用者に切り替えを提案する
+（HOLD-7。ADR に残す）。承認されたら `curl`・`git`・`sha256sum` か `shasum` があることを確認し、0a-3 → 0a-4b → 0a-5b へ進む。
 
 ### 0a-3: リポジトリごとの git 準備【分析を実行する場合のみ】
 
@@ -105,6 +122,8 @@ Phase 3（実装）以降は `01-plan/work-plan.md` に従う。
 - **ATX は対象リポジトリに書き込む**（回避不可のツール仕様）:
   `.gitignore` への共通 ignore パターン追記、`atx-result-staging-<id>` ブランチの作成、
   `git add .` とコミット。だからこそ実行後の復帰確認が必須になる
+- **エージェント直接分析（0a-5b）も同じ扱い**: 分析用ブランチ `cca-agent-staging-<id>` の作成と、
+  `ATXDocumentation/` だけのコミットを許可する。実行前後のブランチ・HEAD の一致確認も同じ
 - 管理下のリポジトリが dirty な場合は、分析前に利用者へ確認する
 
 ### 0a-4: transform-config の作成【分析を実行する場合のみ】
@@ -143,6 +162,17 @@ Phase 3（実装）以降は `01-plan/work-plan.md` に従う。
    テンプレートの「移行先が未定の場合の分析観点」（現行スタックの棚卸しと、
    実行可能な移行先候補の列挙）を有効にする
 5. `additionalPlanContext` が **4096バイト以内**であることを確認する
+
+### 0a-4b: 追加指示の作成【エージェント直接分析の場合のみ】
+
+0a-4 の `additionalPlanContext` に当たる内容を、リポジトリごとに別ファイルに書く:
+`00-analysis/<repo-id>/cca-additional-instructions.md`
+
+- **upstream の指示書には追記しない**（ハッシュで照合できなくなる）
+- 目標スタック: **利用者が確定した制約だけ**を書く。未確定なら仮定せず、現行スタックの棚卸しと移行先候補の列挙を求める
+- 追加の分析観点: 移行の動機に応じて書く（例: フレームワークの全マッピング、名前空間の移行の影響、SQL の全ステートメント、
+  入力検証、セキュリティ、DB 方言、テスト資産）
+- 言語・識別子・mermaid の3要素は 0a-5b の置き換え表で指定するので、ここには書かない。カンマ・4096 バイトの制限はない
 
 ### 0a-5: ATX 分析の実行【分析を実行する場合のみ】
 
@@ -223,6 +253,58 @@ atx custom def exec -g file://00-analysis/<repo-id>/transform-config-cca.yaml -x
 **注意: 結果を待たずに進めることと、実行を止めることは別である。** 実行中の長時間ジョブの停止は
 HOLD-6 である（数百 agent min の実費を捨てる操作であり、利用者の指示なしに行ってはならない）。
 
+### 0a-5b: エージェント直接分析の実行【エージェント直接分析の場合のみ】
+
+ATX の CCA が使う指示書（upstream で公開。**静的解析のみ**）を、エージェントが自分で実行する。
+成果物は ATX と同じ構造の `ATXDocumentation/` であり、0a-6 以降は手順を変えずに進める。
+
+1. **指示書を取得する。** `00-analysis/fetch-cca-definition.sh 00-analysis/<repo-id>/cca-instructions.md` を実行し、
+   出力の `COMMIT=<値>` を控える。終了コードが 0 以外なら中止して利用者に伝える。**照合に失敗した指示書で分析してはならない**
+2. **指示書と追加指示（0a-4b）を全文読む**（要約・部分読みで済ませない）。優先順位は「下の置き換え表 ＞ 追加指示 ＞ 指示書」
+3. **分析用ブランチを作る。** 実行前のブランチ・HEAD を `analysis-runs.md` に記録してから
+   `git -C <repo> checkout -b cca-agent-staging-<id>` を実行する。その前に `git -C <repo> rev-parse --show-toplevel` が
+   対象リポジトリ自身を指すことを確かめる（`.git` が無いと `git -C` は親ディレクトリの別リポジトリを操作する）
+4. **分析する。** 作業ディレクトリ（指示書の project root）は対象リポジトリのルート。指示書の Implementation Steps・
+   Constraints and Guardrails・Validation に従う。特に: **ビルド・コンパイル・実行・テストは一切しない** /
+   優先度・工数は定性的に書く（数値の日数・時間を書かない）。重大度は High / Medium / Low のみ / 空のファイル・ディレクトリを残さない
+5. **ATX の中で動く前提の記述は、次のとおり置き換える:**
+
+   | 指示書の記述 | この手順での扱い |
+   |---|---|
+   | AWS-managed transformation の推奨（final recommendation・`list_available_transformations_from_registry`・`technical-debt-report.md` 先頭の推奨節） | **行わない。** 推奨節は書かず、`technical-debt-report.md` は技術的負債のエグゼクティブサマリーから始める |
+   | 完了後に `~/.aws/atx/custom/{conversationId}/` へコピーする | **行わない** |
+   | 図は text-based | **mermaid** で書く（ASCII アートにしない）。ディレクトリ構成のツリーはコードブロックでよい |
+   | 出力言語の指定なし | **設置言語**で書く。識別子・ファイルパスは原文のまま。「EXACTLY AS WRITTEN」の注意書き（Large Codebase Notice・Early Access）は英語の原文のまま、各ファイルを書き終えてから付ける |
+   | `diagrams/` の構成の食い違い（`behavior/`・`behavioral/`・`data-flow/`） | Step 1 の構成（`structural/`・`behavioral/`・`architecture/`）を正とする。データフロー図は `behavioral/` に入れる |
+   | Step 1 が空のフォルダを作るが、Constraints は空フォルダを禁じる | `diagrams/` の各フォルダに少なくとも 1 図を書く。`specialized/` は検出した領域だけ書き、無ければ `specialized/detection-summary.md` に確認した領域と結果を書く |
+   | 必須ファイルの一覧の食い違い（`reference/api-reference.md` と `reference/modules.md` など） | どちらも作る（和集合） |
+   | Exclusions の `build`・`target` などのビルド出力 | 除外するのは**生成物**である。ビルド定義（`build/build.xml`・`pom.xml` 等）は分析対象に含める |
+
+   表にない食い違いは、より具体的な記述に従い、どう判断したかを手順 9 の報告に書く。
+6. **出所を区別する。** コードで確認した事実には `path:line` を付ける。EOL 日・後継などの外部知識は「推定」と書くか、
+   確認した公式ドキュメントの URL を付ける
+7. **検証する。** 指示書の Validation Phase 1（項目 2 を除く）をすべて満たし、次の2つが何も出さないこと:
+   `find <repo>/ATXDocumentation -type f -empty` / `find <repo>/ATXDocumentation -type d -empty`
+8. **生成元を記録してコミットする。** `ATXDocumentation/README.md` の**先頭行**（Large Codebase Notice より前）に次の1行と空行を入れ、
+   `ATXDocumentation/` だけをコミットし、元のブランチへ戻る。HEAD の一致を `analysis-runs.md` に記録する
+
+   ```
+   > このドキュメントは AWS Transform（atx）ではなく、<エージェント> が [comprehensive-codebase-analysis の指示書](https://github.com/aws-samples/aws-transform-custom-samples/blob/<COMMIT>/aws-managed-definitions/comprehensive-codebase-analysis/codebase-analysis.md)（コミット `<COMMIT>`）に従って生成しました（ai-modernization-flow <Harness version>）。
+   ```
+   ```bash
+   git -C <repo> add ATXDocumentation
+   git -C <repo> commit -q -m "Generate ATXDocumentation (codebase analysis by <エージェント>, definition <COMMIT>)"
+   git -C <repo> checkout <実行前のブランチ>
+   git -C <repo> diff --stat <実行前HEAD> cca-agent-staging-<id> | grep -v ATXDocumentation   # 何も出ないこと
+   ```
+9. **報告する:** 生成したファイル数（空が無いこと）、主な技術スタックと技術的負債の要点、指示書のコミット、
+   置き換え表にない食い違いの判断、打ち切った・情報が不十分な箇所
+
+`analysis-runs.md` の source 列は `executed（エージェント直接分析。ATX 未使用。指示書 <COMMIT>）`、終了コードは `n/a`、
+staging ブランチ列は `cca-agent-staging-<id>` とする。0a-6 の配置は分析用ブランチから写す:
+`git -C <repo> archive cca-agent-staging-<id> ATXDocumentation | tar -x -C 00-analysis/<repo-id>/`
+
+**分析者と実装者が同じになる。** 結果は ATX と同じく仮説であり（CP-3）、独立性はむしろ低い。2-1 で全項目を裏取りする。
 
 ### 0a-6: 結果の整理と成果物の入口
 
@@ -236,7 +318,14 @@ HOLD-6 である（数百 agent min の実費を捨てる操作であり、利�
    - サイドバーは実ファイルのツリーから自動生成される（固定リストではないので dead link が出ない）
    - ``` mermaid ``` ブロックは図として描画される（`mermaid.min.js` をローカル同梱するのでオフライン可）。
      **ASCII アート図は図にならない** — 0a-4 の指示で mermaid を要求するのが根本対策
-3. **`00-analysis/README.md` を生成する。** 何を分析したか / 結果がどこにあるか /
+3. **mermaid 図を描画して検証する**（構文エラーの図は Markdown を読んでも気づけない）:
+   ```bash
+   ../check-mermaid.sh ATXDocumentation_html   # 00-analysis/<repo-id> で実行。終了コード 0 で全図が描画された
+   ```
+   - エラーの図は Markdown 側を直して 2 からやり直す。HTML を直接直さない
+   - ブラウザ（Chrome / Chromium / Edge）が無いと「未検証」と出て止まらない。その場合は `analysis-runs.md` に「mermaid 未検証」と記録する
+   - 「図を 1 件も検出できない」で失敗したら、HTML の生成側（pandoc がハイライトしていないか）を疑う
+4. **`00-analysis/README.md` を生成する。** 何を分析したか / 結果がどこにあるか /
    リポジトリごとの HTML へのリンク。これがないと引き渡すものがディレクトリツリーになる
 
 ### Phase 0a 完了条件
@@ -247,6 +336,7 @@ HOLD-6 である（数百 agent min の実費を捨てる操作であり、利�
 - [ ] `analysis-runs.md` に全実行の来歴・終了コード・出力先が記録されている
 - [ ] **全対象リポジトリが元のブランチ・HEAD に戻っていることを確認済み**（台帳に記録）
 - [ ] 分析結果が HTML化され、`00-analysis/README.md` から辿れる
+- [ ] `check-mermaid.sh` が終了コード 0 で終わった（ブラウザが無く未検証なら、その旨を台帳に記録した）
 - [ ] `03-worklog/session-context.md` と `worklog.md` が更新されている
 
 **停止するかは `migration-project.md` の「アセスメントのみで終えるか」で決まる。**
@@ -401,6 +491,7 @@ API / イベント / 共有DB / 共有ファイルを列挙する。frontend-bac
    - 各項目に「要修正 / 問題なし / 未確認」のラベルを付ける
 4. **取り込んだ分析結果（0a-2b）ほど裏取りの価値が高い。**
    分析時点のコミットが不明な結果は全項目を裏取りの対象とする
+5. **エージェント直接分析（0a-5b）の結果は全項目を裏取りの対象とする。** 分析者と実装者が同じになるため
 
 ### 2-2: work-plan の作成
 

@@ -27,6 +27,18 @@ first because the approach determines which steps follow.
 | **Use results that already exist** | ATX analysis results already exist (run by another team / received as an assessment deliverable / 0a already done on this project) | 0a-1 → 0a-2 → **0a-2b** → 0a-6 |
 | **Run the analysis** | No analysis results | 0a-1 → 0a-2 → 0a-3 → 0a-4 → 0a-5 → 0a-6 |
 | **Use existing results for some repositories** | Results exist for only some repositories | Use both. **Run only what is missing (never all-or-nothing)** |
+| **Agent-direct analysis** (without ATX) | ATX cannot run and every condition below holds, or **the user explicitly asks for it** | 0a-1 → 0a-2 → 0a-2c → 0a-3 → **0a-4b** → **0a-5b** → 0a-6 |
+
+**Conditions for agent-direct analysis** (only when all hold; decided in 0a-2c):
+1. ATX cannot run (0a-2c does not pass, and there is no prospect of an ATX execution environment)
+2. The size fits within the agent reading everything. Record the LOC from 0a-1 in an ADR; the user decides.
+   **Over 1 million lines, the accuracy may be insufficient** (the threshold at which the definition treats a codebase as large)
+3. Only a CCA is needed (if BRE is needed, ATX is required)
+4. The user has approved it (HOLD-7; recorded in an ADR)
+
+**When the user explicitly asks for it, run it even if the conditions above do not hold.** Skip the ATX pre-check (0a-2c)
+and only confirm that `curl`, `git` and `sha256sum` or `shasum` are available. Record the request in an ADR.
+If the size exceeds condition 2, tell the user the accuracy may be insufficient.
 
 **When using results that already exist, do not perform `0a-3` (git preparation), `0a-4` (transform-config)
 or `0a-5` (running ATX).** Nothing is executed, so neither the git preparation nor the configuration is
@@ -49,6 +61,8 @@ Scan under the source root and create `00-analysis/repository-inventory.md`.
      cannot run in parallel** (see 0a-5 below)
 3. Record per row: ID / path / git-managed / build system / presumed role
    (frontend/backend/batch/shared/tooling) / rough size (files, LOC) / in or out of scope + reason.
+   Count LOC excluding build output and dependencies (`target/`, `node_modules/`, etc.); it decides
+   condition 2 of agent-direct analysis.
 4. **Do not dig deep.** Leave detailed structural analysis to ATX. This step is enumeration and
    identification only.
 
@@ -95,6 +109,11 @@ to install and configure, then check again. If the user has to act, report and s
 - Prefer IAM Identity Center (SSO) or temporary IAM role credentials for authentication. Long-term IAM user access keys are the last resort
 - Never have access keys pasted into the conversation, logs or records
 - On Windows, confirm that `atx` is visible on the PATH from both native PowerShell and Git Bash
+- **Do not stop at `atx --version`.** A failure on the authentication path then shows up only at run time, and the decision to switch comes late
+
+**If the check does not pass and there is no prospect of setting up an ATX execution environment:** check the conditions for agent-direct
+analysis in 0a-0 and propose the switch to the user (HOLD-7; recorded in an ADR). Once approved, confirm that `curl`, `git`
+and `sha256sum` or `shasum` are available, then go 0a-3 → 0a-4b → 0a-5b.
 
 ### 0a-3: Per-repository git preparation [only when running the analysis]
 
@@ -115,6 +134,8 @@ For each target repository, record the git state before the run in `00-analysis/
 - **ATX writes to the target repository** (unavoidable tool behaviour): it appends common ignore
   patterns to `.gitignore`, creates an `atx-result-staging-<id>` branch, and performs `git add .`
   plus a commit. That is exactly why confirming the return afterwards is mandatory
+- **Agent-direct analysis (0a-5b) gets the same treatment**: creating the analysis branch `cca-agent-staging-<id>`
+  and a commit of `ATXDocumentation/` only are permitted. Confirming the branch and HEAD before and after is the same
 - If a managed repository is dirty, ask the user before analysing
 
 ### 0a-4: Create the transform-config [only when running the analysis]
@@ -156,6 +177,19 @@ Create one configuration per repository.
    Enable the template's "If the migration target is undecided" viewpoints (inventory the current
    stack and enumerate viable migration targets)
 5. Confirm `additionalPlanContext` is **within 4096 bytes**
+
+### 0a-4b: Write the additional instructions [only for agent-direct analysis]
+
+Write what 0a-4 puts in `additionalPlanContext` into a separate file per repository:
+`00-analysis/<repo-id>/cca-additional-instructions.md`
+
+- **Do not append to the upstream definition** (it could no longer be matched by its hash)
+- Target stack: **only the constraints the user has confirmed**. If undecided, assume nothing; ask for an inventory of the
+  current stack and an enumeration of candidate targets
+- Additional viewpoints: according to the migration motive (for example: all framework mappings, the impact of a namespace
+  migration, every SQL statement, input validation, security, DB dialect, test assets)
+- The three elements of language, identifiers and mermaid are set by the replacement table in 0a-5b, so do not write them
+  here. There is no comma or 4096-byte limit
 
 ### 0a-5: Run the ATX analysis [only when running the analysis]
 
@@ -245,6 +279,63 @@ analysis as input.
 long-running job in flight is HOLD-6 (it throws away hundreds of agent minutes of real spend and must
 not be done without the user's instruction).
 
+### 0a-5b: Run the agent-direct analysis [only for agent-direct analysis]
+
+The agent itself runs the definition that ATX's CCA uses (published upstream; **static analysis only**).
+The output is an `ATXDocumentation/` with the same structure as ATX's, and 0a-6 onwards proceeds unchanged.
+
+1. **Fetch the definition.** Run `00-analysis/fetch-cca-definition.sh 00-analysis/<repo-id>/cca-instructions.md` and note
+   `COMMIT=<value>` in the output. If the exit code is not 0, stop and tell the user. **Never analyse with a definition that
+   failed the hash check**
+2. **Read the definition and the additional instructions (0a-4b) in full** (no summaries, no partial reads). Precedence is
+   "the replacement table below > the additional instructions > the definition"
+3. **Create the analysis branch.** Record the branch and HEAD before the run in `analysis-runs.md`, then run
+   `git -C <repo> checkout -b cca-agent-staging-<id>`. Before that, confirm that `git -C <repo> rev-parse --show-toplevel`
+   points at the target repository itself (without a `.git`, `git -C` operates on another repository in a parent directory)
+4. **Analyse.** The working directory (the definition's project root) is the root of the target repository. Follow the
+   definition's Implementation Steps, Constraints and Guardrails, and Validation. In particular: **never build, compile, run
+   or test** / write priority and effort qualitatively (no numeric days or hours); severity is High / Medium / Low only /
+   leave no empty files or directories
+5. **Replace the statements that assume running inside ATX as follows:**
+
+   | Statement in the definition | Treatment in this procedure |
+   |---|---|
+   | Recommending an AWS-managed transformation (final recommendation, `list_available_transformations_from_registry`, the recommendation section at the top of `technical-debt-report.md`) | **Do not.** Write no recommendation section; `technical-debt-report.md` starts with the technical-debt executive summary |
+   | Copy to `~/.aws/atx/custom/{conversationId}/` after completion | **Do not** |
+   | Diagrams are text-based | Write them in **mermaid** (never ASCII art). A directory tree may be a code block |
+   | No output language specified | Write in the **installed language**. Keep identifiers and file paths as they are. Add the "EXACTLY AS WRITTEN" notices (Large Codebase Notice, Early Access) in the original English, after each file is written |
+   | Inconsistent `diagrams/` layout (`behavior/`, `behavioral/`, `data-flow/`) | Step 1's layout (`structural/`, `behavioral/`, `architecture/`) is authoritative. Data-flow diagrams go in `behavioral/` |
+   | Step 1 creates empty folders, but the Constraints forbid empty folders | Write at least one diagram in each `diagrams/` folder. Write `specialized/` only for the areas detected; if none, write the areas checked and the result in `specialized/detection-summary.md` |
+   | Inconsistent lists of required files (`reference/api-reference.md` and `reference/modules.md`, etc.) | Create both (the union) |
+   | Build output such as `build` and `target` in Exclusions | What is excluded is **generated output**. Build definitions (`build/build.xml`, `pom.xml`, etc.) are in scope |
+
+   For an inconsistency not in the table, follow the more specific statement and report the decision in step 9.
+6. **Distinguish the source.** Give `path:line` for facts confirmed in code. Mark external knowledge such as EOL dates or
+   successors as "estimated", or give the URL of the official documentation checked
+7. **Validate.** Satisfy all of the definition's Validation Phase 1 (except item 2), and make sure these two print nothing:
+   `find <repo>/ATXDocumentation -type f -empty` / `find <repo>/ATXDocumentation -type d -empty`
+8. **Record the origin and commit.** Put the following line and a blank line at the **very top** of
+   `ATXDocumentation/README.md` (before the Large Codebase Notice), commit `ATXDocumentation/` only, and return to the
+   original branch. Record the HEAD match in `analysis-runs.md`
+
+   ```
+   > This documentation was generated not by AWS Transform (atx) but by <agent>, following the [comprehensive-codebase-analysis definition](https://github.com/aws-samples/aws-transform-custom-samples/blob/<COMMIT>/aws-managed-definitions/comprehensive-codebase-analysis/codebase-analysis.md) (commit `<COMMIT>`) (ai-modernization-flow <Harness version>).
+   ```
+   ```bash
+   git -C <repo> add ATXDocumentation
+   git -C <repo> commit -q -m "Generate ATXDocumentation (codebase analysis by <agent>, definition <COMMIT>)"
+   git -C <repo> checkout <branch before the run>
+   git -C <repo> diff --stat <HEAD before the run> cca-agent-staging-<id> | grep -v ATXDocumentation   # prints nothing
+   ```
+9. **Report:** the number of files generated (none empty), the main technology stack and the key technical debt, the
+   definition commit, decisions on inconsistencies not in the replacement table, and anything cut short or under-informed
+
+In `analysis-runs.md`, the source column is `executed (agent-direct analysis; ATX not used; definition <COMMIT>)`, the exit
+code is `n/a`, and the staging branch column is `cca-agent-staging-<id>`. The 0a-6 placement copies from the analysis branch:
+`git -C <repo> archive cca-agent-staging-<id> ATXDocumentation | tar -x -C 00-analysis/<repo-id>/`
+
+**The analyst and the implementer are the same.** The results are hypotheses, like ATX's (CP-3), and even less independent.
+Corroborate every item in 2-1.
 
 ### 0a-6: Organize the results and create the entry point
 
@@ -259,7 +350,14 @@ not be done without the user's instruction).
    - ``` mermaid ``` blocks are rendered as diagrams (`mermaid.min.js` is bundled locally, so it works
      offline). **ASCII-art diagrams do not become diagrams** — requiring mermaid via the 0a-4 directive
      is the real remedy
-3. **Generate `00-analysis/README.md`.** What was analysed / where the results are / links to the
+3. **Render the mermaid diagrams and check them** (a diagram with a syntax error cannot be spotted by reading the Markdown):
+   ```bash
+   ../check-mermaid.sh ATXDocumentation_html   # run in 00-analysis/<repo-id>; exit code 0 = every diagram rendered
+   ```
+   - Fix a failing diagram in the Markdown and redo from 2. Do not fix the HTML directly
+   - Without a browser (Chrome / Chromium / Edge) it prints "not verified" and does not stop. Then record "mermaid not verified" in `analysis-runs.md`
+   - If it fails with "not a single diagram was found", suspect the HTML generator (check that pandoc is not highlighting)
+4. **Generate `00-analysis/README.md`.** What was analysed / where the results are / links to the
    per-repository HTML. Without it, what you hand over is a directory tree
 
 ### Phase 0a completion conditions
@@ -270,6 +368,7 @@ not be done without the user's instruction).
 - [ ] `analysis-runs.md` records the provenance, exit code and output location of every run
 - [ ] **The branch/HEAD return has been confirmed for every target repository** (recorded in the ledger)
 - [ ] The analysis results are converted to HTML and reachable from `00-analysis/README.md`
+- [ ] `check-mermaid.sh` ended with exit code 0 (or, without a browser, "not verified" is recorded in the ledger)
 - [ ] `03-worklog/session-context.md` and `worklog.md` are updated
 
 **Whether to stop is decided by "Assessment only" in `migration-project.md`.**
@@ -430,6 +529,7 @@ You must not proceed into the implementation phase with an "implicitly out of sc
    - Label each item "needs fixing / no problem / unconfirmed"
 4. **The more a result was ingested (0a-2b), the more valuable corroboration is.**
    When the commit the analysis saw is unknown, corroborate every item
+5. **Corroborate every item of an agent-direct analysis (0a-5b).** The analyst and the implementer are the same
 
 ### 2-2: Create the work-plan
 
