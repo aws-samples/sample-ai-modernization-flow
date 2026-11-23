@@ -24,11 +24,16 @@ Ref: work-plan.md §Step X, DP-<N>
 - **Order: oldest entries first, append new entries at the end (chronological order)**
 - When troubleshooting is involved, include the hypothesis log table (skills/migration-troubleshooting)
 
-### Turn timestamp transcription (only when `--turn-log` is enabled)
+### Matching turns to entries (when `--turn-log` is enabled)
 
-**Trigger: every time a worklog entry is written**, run `./03-worklog/turn-report.sh --worklog` and paste
-the output into that entry (the range is determined mechanically; you do not need to remember it).
-**The raw log is git-ignored; the pasted table is the only permanent record.**
+**Do not write a time table.** `turn-report.sh --by-entry` joins entries to turns by the time in the
+declaration line at the start of a line:
+
+- Copy the declaration line written in session-context (the `--declare` output). **Never type or
+  rewrite the time by hand** (if a single character differs, the turn goes to "(no entry)")
+- When one turn writes several entries, put the declaration line only in the first one
+- When the body mentions a declaration line, do not write it in that form at the start of a line
+- Never edit `time-summary.md` or `turn-log.tsv` by hand (generation: skills/migration-session)
 
 ## Accumulating knowledge (4 files)
 

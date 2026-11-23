@@ -11,7 +11,9 @@
 #
 # From the hook: wire to `preToolUse` (Kiro) / `PreToolUse` (Claude Code) (install.sh --work-guard).
 # Check: `This turn (<T_prompt>)` exists in the "In-progress Investigation" section of `session-context.md`.
-#   `T_prompt` = the last `UserPromptSubmit` **of this session** in `turn-log.tsv`.
+#   `T_prompt` = the last `UserPromptSubmit` **of this session** in `turn-log.tsv` (rows of kind
+#   notify excluded: a completion-notification turn continues the previous prompt, so no new
+#   declaration is required; the same treatment as turn-report.sh --by-entry).
 #   The declaration line can be generated with `turn-report.sh --declare`.
 #
 # Pass-through conditions (fail-open; the guard must never make work impossible):
@@ -24,7 +26,11 @@
 #   - **Do not look at mtime.** session-context is touched often for unrelated reasons, so it would pass
 #   - **Filter `T_prompt` by session.** Without the filter, a parallel session's prompt is taken as
 #     this session's, and a correct declaration is blocked
-#   - **Match tool names with `_`/`-` removed** (Claude Code uses `Edit`/`Write`, Kiro `fs_write`)
+#   - **Match tool names with `_`/`-` removed** (Claude Code uses `Edit`/`Write`; Kiro v2 `write`,
+#     v3 `fs_write`/`str_replace`. Measured on kiro-cli 2.36.0)
+#   - **Narrow to write tools with the hook's matcher** (Kiro: `fs_write`, Claude Code:
+#     `Edit|Write|NotebookEdit`). Without it the guard starts on every read and command. The tool
+#     name match below is the backstop for when the matcher is removed
 #   - **There is no warning mode.** stderr with exit 0 does not reach the agent (observed).
 #     exit 2 stops the tool in both tools and the message reaches the agent
 #   - **This script only reads** (it writes no files). Compare `cwd` at path boundaries
@@ -101,9 +107,10 @@ esac
 
 # Pass-through condition 1: not a modifying tool (Bash / execute_bash are deliberately out of scope).
 # **Match case-insensitively with `_`/`-` removed** — Claude Code uses `Edit`/`Write`/`NotebookEdit`,
-# Kiro uses **`fs_write`** (with an underscore). This difference was found in practice, so normalization absorbs it.
+# Kiro uses `write` on v2 and **`fs_write` / `str_replace`** (with underscores) on v3.
+# These differences were found in practice, so normalization absorbs them.
 case "$(printf '%s' "$TOOL" | tr 'A-Z' 'a-z' | tr -d '_-')" in
-  edit|write|notebookedit|multiedit|fswrite|fsreplace) : ;;
+  edit|write|notebookedit|multiedit|fswrite|fsreplace|strreplace) : ;;
   *) exit 0 ;;
 esac
 
@@ -123,7 +130,9 @@ scoped, any_last = "", ""
 try:
     for line in io.open(os.environ["TURN_LOG_PATH"], encoding="utf-8", errors="replace"):
         p = line.rstrip("\n").split("\t")
-        if len(p) >= 2 and p[1].strip().lower() == "userpromptsubmit":
+        # A completion-notification turn (kind notify) continues the previous prompt; never use it as the declaration time
+        if len(p) >= 2 and p[1].strip().lower() == "userpromptsubmit" \
+                and not (len(p) >= 4 and p[3].strip() == "notify"):
             any_last = p[0]
             if want and len(p) >= 3 and p[2] == want:
                 scoped = p[0]

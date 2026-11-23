@@ -3,7 +3,8 @@
 *-modernized/
 .DS_Store
 
-# Turn timestamp raw log (install.sh --turn-log; the hook appends one row per turn).
-# **Must not be tracked**: repo-sync treats untracked files as a failure, so the session
-# would fail every gate. The permanent record is the table pasted into worklog.
-03-worklog/turn-log.tsv
+# 03-worklog/turn-log.tsv (the raw turn timestamp log) is **not listed here. It is tracked.**
+# It is the source data of time-summary.md and cannot be rebuilt once lost. The hook appends
+# to it every turn, so the repo-sync gate leaves changes to this file out of the uncommitted
+# check. Commit it, like time-summary.md, at session start and session end
+# (skills/migration-session).

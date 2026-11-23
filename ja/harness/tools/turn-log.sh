@@ -4,18 +4,21 @@
 # =============================================================================
 #
 # 自己申告の記録は忘れても検出されないため、時刻は hook で採る。
-# 表の生成は `turn-report.sh`（`--worklog` / `--list` / `--declare`）。採取とレポートを分けるのは、
+# 表の生成は `turn-report.sh`（`--by-entry` / `--list` / `--declare`）。採取とレポートを分けるのは、
 # 毎ターン走る経路に不要なコードを置かないため（採取の失敗は stdout を汚せないのでエラーが表に出ない）。
 #
 # hook から: stdin にイベント JSON を受け、TSV に1行追記して exit 0 する。配線は install.sh --turn-log。
-#   出力: `03-worklog/turn-log.tsv` に `時刻 <TAB> イベント生値 <TAB> session_id`
-#   対応: userPromptSubmit / stop（Kiro）、UserPromptSubmit / Stop / StopFailure（Claude Code）
+#   出力: `03-worklog/turn-log.tsv` に `時刻 <TAB> イベント生値 <TAB> session_id <TAB> 種別`
+#   種別: 指示の行だけ `human` / `notify`（本文が `<task-notification>` で始まる＝バックグラウンド
+#         処理の完了通知で起動したターン）。返答の行は `-`。**判定結果だけを残し、本文は残さない**
+#   対応: userPromptSubmit / stop（Kiro v2）、UserPromptSubmit / Stop（Kiro v3）、
+#         UserPromptSubmit / Stop / StopFailure（Claude Code）
+#   turn-log.tsv は記録リポジトリの追跡対象（time-summary.md の一次データ）。追記のみで書き換えない
 #
 # 触るときに壊しやすい点:
 #   - **標準出力に何も書かない。** 両ツールとも開始 hook の stdout をエージェントの文脈に注入する
 #   - **プロンプト本文は採らない。** 時刻に本文は不要であり、採れば API キー等が平文で残る
-#   - **イベント名は正規化しない。** 生値の大小文字がツールの判別情報を保っている
-#     （`Stop`=Claude Code / `stop`=Kiro）
+#   - **イベント名は正規化しない。** 照合は大小無視で行う（Kiro は v2 が小文字、v3 が大文字始まり）
 #   - `session_id` はペイロード優先、無ければ環境変数（Kiro の `--no-interactive` は環境変数のみ）
 #   - **ファイル名に外部由来の値を使わない** — サニタイズ・ローテートが不要な操作になる
 #   - `cwd` はパス境界で比較（前方一致だと `<root>-EVIL` が通る）/ umask 077 + chmod 600 /
@@ -44,7 +47,7 @@ umask 077   # ファイル 600。umask への依存を断つ
 TS="$(date '+%Y-%m-%dT%H:%M:%S%z')"
 PAYLOAD="$(cat 2>/dev/null || true)"
 
-EVENT=""; SESSION=""; CWD=""
+EVENT=""; SESSION=""; CWD=""; KIND="-"
 if [ -n "$PY" ]; then
   # `session_id` は**ペイロード優先、無ければ環境変数**。
   # Kiro の `--no-interactive` はペイロードに `session_id` を渡さず環境変数のみである
@@ -62,16 +65,23 @@ except Exception:
 raw = str(d.get("hook_event_name", ""))
 session = str(d.get("session_id", "") or "") or os.environ.get("KIRO_SESSION_ID", "")
 
+# 種別: 指示の行だけ判定する。**本文は判定に使うだけで出力しない**（キーの有無と先頭だけを見る）
+kind = "-"
+if raw.lower() == "userpromptsubmit":
+    p = d.get("prompt")
+    kind = "notify" if isinstance(p, str) and p.lstrip().startswith("<task-notification>") else "human"
+
 def clean(s):
     # タブ・改行に加えて制御文字（C0 と DEL）を除去する
     return "".join(ch for ch in str(s) if ch >= " " and ch != "\x7f")
 
-print("\t".join(clean(x) for x in (raw, session, d.get("cwd", ""))))
+print("\t".join(clean(x) for x in (raw, session, d.get("cwd", ""), kind)))
 ' 2>/dev/null || true)"
   if [ -n "$PARSED" ]; then
     EVENT="$(printf '%s' "$PARSED"   | cut -f1)"
     SESSION="$(printf '%s' "$PARSED" | cut -f2)"
     CWD="$(printf '%s' "$PARSED"     | cut -f3)"
+    KIND="$(printf '%s' "$PARSED"    | cut -f4)"
   fi
 fi
 
@@ -106,7 +116,7 @@ esac
 # 追記先がシンボリックリンクなら書かない（追記先の差し替えを防ぐ）
 if [ -L "$LOG_FILE" ]; then exit 0; fi
 
-printf '%s\t%s\t%s\n' "$TS" "$EVENT" "${SESSION:-no-session-id}" \
+printf '%s\t%s\t%s\t%s\n' "$TS" "$EVENT" "${SESSION:-no-session-id}" "${KIND:--}" \
   >> "$LOG_FILE" 2>/dev/null || true
 chmod 600 "$LOG_FILE" 2>/dev/null || true
 

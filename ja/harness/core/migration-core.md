@@ -133,9 +133,8 @@ Phaseゲートはリスク管理であると同時に、人が理解を消化・
 ## 記録の義務
 
 作業の各単位（調査・修正・テスト）の完了時に必ず行う。行うまで「完了」と宣言しない:
-1. `03-worklog/worklog.md` に追記（時系列順・末尾追記）。追記後に
-   **`./03-worklog/turn-report.sh --worklog` を実行して出力をそのエントリに貼る**（生ログは git-ignored）。
-   **表の手書き・模写は禁止。数値は必ずコマンド出力そのまま**
+1. `03-worklog/worklog.md` に末尾追記。エントリには、その作業をしたターンの宣言行（session-context に書いた
+   `--declare` の出力）を**行頭にそのまま**写す。**時刻を手で打たない。時間の表は書かない**（skills/migration-recording）
 2. `03-worklog/session-context.md` を更新（Current Status / Next Actions / Verification Queue / Decision Queue）
 3. Phase/Step・サブタスク・Tier 2（HOLD）対応の完了時はLL/CP/DP棚卸しを行う（該当なしも明示）
 
@@ -184,8 +183,9 @@ Playbook が定義する禁止パターン（`not implemented` 等）も同じ�
 
 セッション終了時は指示を待たずに実行する。**片方のリポジトリだけのコミット・pushは未完了**:
 1. worklog 追記確認 → 2. session-context 更新（リポジトリ同期状態テーブル含む）
-3. 記録系リポジトリをクリーンまでコミット → 4. 実装ツリーの検証済み変更をコミット
-5. リモートがあれば両方 push → 6. 両リポジトリの `git log --oneline -1` と `git status --short` を報告
+3. `./03-worklog/turn-report.sh --by-entry > 03-worklog/time-summary.md`（`--turn-log` 有効時）→ 4. 記録系リポジトリをクリーンまでコミット
+5. 実装ツリーの検証済み変更をコミット → 6. リモートがあれば両方 push
+7. 両リポジトリの `git log --oneline -1` と `git status --short` を報告
 詳細: **skills/migration-session**
 
 ## Off-limits・プロジェクト固有情報

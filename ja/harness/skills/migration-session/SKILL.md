@@ -13,11 +13,13 @@ description: セッションの開始・終了手順の詳細。セッション�
    - **Verification Queue**（未検証の修正があれば検証から始める）
    - リポジトリ同期状態テーブル（未pushがあれば報告）
 2. `tail -80 03-worklog/worklog.md` で直近の作業を確認する
-3. テスト環境をセットアップする（`02-test/test-procedures.md`「前提条件」。
+3. `--turn-log` 有効時: `./03-worklog/turn-report.sh --by-entry > 03-worklog/time-summary.md` を実行し、
+   `time-summary.md` と `turn-log.tsv` を commit する（前回の最後のターンを確定させる）
+4. テスト環境をセットアップする（`02-test/test-procedures.md`「前提条件」。
    デーモン・環境変数等は揮発しているため毎回必要）
-4. `./verify.sh` で「壊れていないこと」を確認してから作業を再開する
-5. 中断されたサブタスクがあれば、そのディレクトリの plan.md / investigation.md を読んで継続する
-6. 作業ツリーが dirty なら継続前に分類する: session-context の `This turn` 宣言と作業ツリー台帳を
+5. `./verify.sh` で「壊れていないこと」を確認してから作業を再開する
+6. 中断されたサブタスクがあれば、そのディレクトリの plan.md / investigation.md を読んで継続する
+7. 作業ツリーが dirty なら継続前に分類する: session-context の `This turn` 宣言と作業ツリー台帳を
    `git log` と突き合わせ、各変更を diagnostic（revert）/ candidate-fix（未検証扱いで再検証）に分ける。
    記録が皆無なら diff から意図を復元して記録してから進む
 
@@ -31,14 +33,17 @@ description: セッションの開始・終了手順の詳細。セッション�
    - Current Status / Next Actions / 再開手順
    - Decision Queue / Verification Queue
    - リポジトリ同期状態テーブル
-3. **migration（記録系）リポジトリ**: `git status` がクリーンになるまでコミット
-4. **実装ツリー**: 検証済みの変更をコミット
+3. `--turn-log` 有効時: `./03-worklog/turn-report.sh --by-entry > 03-worklog/time-summary.md` を実行する
+   （全体を作り直して上書きする。手で直さない。commit は次の手順で行う）
+4. **migration（記録系）リポジトリ**: `git status` がクリーンになるまでコミット
+5. **実装ツリー**: 検証済みの変更をコミット
    （未検証の変更は Verification Queue に記録して退避）
-5. **リモートが設定されている場合は両リポジトリを push**。
+6. **リモートが設定されている場合は両リポジトリを push**。
    リモート未設定の場合はその旨を session-context.md に明記する
-6. 最後に両リポジトリの `git log --oneline -1` と `git status --short` を表示して整合を報告する
-   （`./verify.sh repo-sync` で両リポジトリの未コミットゼロを機械確認する）
-7. 未処理の Decision Queue があれば終了報告で明示する
+7. 最後に両リポジトリの `git log --oneline -1` と `git status --short` を表示して整合を報告する
+   （`./verify.sh repo-sync` で両リポジトリの未コミットゼロを機械確認する。hook が追記し続ける
+   `turn-log.tsv` の変更だけは対象外）
+8. 未処理の Decision Queue があれば終了報告で明示する
 
 ## リポジトリ同期状態テーブル（session-context.md 内）
 
