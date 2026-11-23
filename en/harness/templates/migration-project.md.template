@@ -91,6 +91,9 @@
   `.gitignore`, creating the `atx-result-staging-<id>` branch, and `git add .` plus a commit.
   That is exactly why the branch and HEAD are confirmed to match before and after an ATX run
   (Phase 0a-3)
+- **Writes by agent-direct analysis (a CCA without ATX) are also an exception** (the same treatment as ATX):
+  creating the `cca-agent-staging-<id>` branch, adding `ATXDocumentation/`, and a commit of that alone.
+  Confirm the branch and HEAD match before and after (Phase 0a-3, 0a-5b)
 <!-- List any additional off-limits files/directories here -->
 
 ## Project-Specific Reference Documents

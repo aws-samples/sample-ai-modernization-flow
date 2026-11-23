@@ -3,7 +3,9 @@
 <!-- Created in Phase 0a-1. The ledger used to fix the scope of the analysis.
      Do not rely on the presence of .git alone; also detect build roots (pom.xml / package.json /
      Makefile / CMakeLists.txt / go.mod / *.csproj / requirements.txt etc.).
-     Do not dig deep (leave detailed structural analysis to ATX). -->
+     Do not dig deep (leave detailed structural analysis to ATX).
+     Count the LOC in the rough size excluding build output and dependencies (target/, node_modules/, etc.)
+     (it decides the size condition for agent-direct analysis in 0a-0). -->
 
 ## Target root
 

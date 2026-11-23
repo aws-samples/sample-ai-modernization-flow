@@ -11,7 +11,8 @@
      Therefore it is mandatory to **record the branch and HEAD before the run and confirm they
      match afterwards**. In one migration there was a real incident where work continued
      while still on the staging branch.
-     The Phase 0a completion condition is "the return has been confirmed for every target repository". -->
+     The Phase 0a completion condition is "the return has been confirmed for every target repository".
+     Agent-direct analysis (0a-5b) is recorded the same way (its analysis branch is cca-agent-staging-<id>). -->
 
 | repo-id | Branch before | HEAD before | git init performed | Branch after | HEAD after | Return confirmed |
 |---------|---------------|-------------|--------------------|--------------|------------|------------------|
@@ -22,6 +23,8 @@
 <!-- source column:
        executed = run by this project
        ingested = an existing analysis result was taken in (Phase 0a-2b)
+       Agent-direct analysis (0a-5b) is `executed (agent-direct analysis; ATX not used; definition <COMMIT>)`,
+       exit code `n/a`, staging branch `cca-agent-staging-<id>`. If mermaid is not verified, say so in the completion column
      Drift since the analysis: for ingested results, the gap between the analysed SHA and the current HEAD.
                 If the SHA is unknown, state "unknown" and strengthen the
                 corroboration in Phase 2 (CP-3).
