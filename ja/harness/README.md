@@ -190,7 +190,7 @@ cd /path/to/workspace
 
 | 扱い | 対象 |
 |------|------|
-| 再生成（上書き） | `00-analysis/analysis-procedure.md`, `00-analysis/*.sh`（Method の tools）, `setup-modernized.sh`, `03-worklog/templates/subtask-plan.md.template`, `docs/reference/`・`00-analysis/transform-config-cca-template.yaml`・`modernized-gitignore.template`（Playbook） |
+| 再生成（上書き） | `00-analysis/analysis-procedure.md`, `00-analysis/*.sh`（Method の tools）, `setup-modernized.sh`, `03-worklog/turn-log.sh`・`turn-report.sh`・`work-declaration-guard.sh`（`--turn-log`有効時）, `03-worklog/templates/subtask-plan.md.template`, `docs/reference/`・`00-analysis/transform-config-cca-template.yaml`・`modernized-gitignore.template`（Playbook） |
 | 保持（変更しない） | `verify.sh`, `docs/decisions/decisions.md`, `docs/knowledge/*.md`, `01-plan/*.md`, `00-analysis/repository-inventory.md`, `analysis-runs.md`, `analysis-appendix.md`, `02-test/*.md`, `03-worklog/session-context.md`, `worklog.md`, `.gitignore` |
 
 保持するファイルのうち現行テンプレートと差異があるものは、新しいテンプレートが`.flow-update-<version>/`配下に同じ相対パスで置かれる。
@@ -224,8 +224,8 @@ grep '^# ai-modernization-flow ' <records>/verify.sh   # → # ai-modernization-
 
 | 設置されるもの | 役割 |
 |--------------|------|
-| `03-worklog/turn-log.sh` | hookから毎ターン呼ばれ、同じディレクトリの`turn-log.tsv`に時刻・イベント・session_idを追記する。プロンプト本文は保存しない |
-| `03-worklog/turn-report.sh` | `--worklog`でworklogに貼る表を、`--list`で記録の一覧を、`--declare`で宣言行を出力する |
+| `03-worklog/turn-log.sh` | hookから毎ターン呼ばれ、同じディレクトリの`turn-log.tsv`に時刻・イベント・session_id・種別を追記する。種別は人の指示（`human`）か、バックグラウンド処理の完了通知（`notify`）か。プロンプト本文は保存しない |
+| `03-worklog/turn-report.sh` | `--by-entry`でworklogのエントリごとの時間の集計を、`--list`で記録の一覧を、`--declare`で宣言行を出力する |
 | `03-worklog/work-declaration-guard.sh` | `--no-work-guard`を指定した場合は設置されない。宣言がなければ変更系ツールの実行を止める（`Bash`は対象外） |
 
 pythonのパスは設置時に解決し、3つのスクリプトに直接書き込む。hookは毎ターン実行されるので、実行時にはpythonを探索しない。
@@ -242,10 +242,28 @@ cd <ワークスペースのルート> && kiro-cli chat --agent migration
 ./<project>-migration-<date>/03-worklog/turn-report.sh --list   # 記録されているかの確認
 ```
 
-恒久的に残る記録は、worklogに貼った表と宣言だけである。生ログはgitの管理対象から外している。
-表の列は、指示（受領）、返答（返却）、所要（AI）、待機（人）、備考である。表の後に、所要と待機それぞれの件数、中央値、最小、最大、合計が続く。
-1時間（`TURN_LOG_IDLE_LIMIT`）を超える待機は離席とみなし、待機の統計から除く。
-worklogへ転記するタイミングはskills/migration-recordingに、宣言の運用方法はskills/migration-troubleshootingに記載している。
+記録から集計までの流れは次のとおりである。
+
+1. hook（`turn-log.sh`）が、ターンごとに指示を受けた時刻と返答した時刻を`turn-log.tsv`に追記する
+2. AIが、worklogの各エントリに、そのターンの宣言行`- **This turn (<指示の時刻>):**`を写す
+3. AIが、セッションの開始時と終了時に`turn-report.sh --by-entry`を実行し、出力で`03-worklog/time-summary.md`を上書きしてcommitする
+
+`turn-report.sh --by-entry`は、宣言行の時刻と指示の時刻が一致するターンをそのエントリに割り当て、
+エントリごとにAIの作業時間（指示→返答）と人の時間（直前の返答→次の指示）を出す。
+完了通知で始まったターンは直前の指示の続きとみなし、AIの時間に足す。
+1時間（`TURN_LOG_IDLE_LIMIT`）を超える間隔は離席とみなし、人の時間から外す。
+
+`turn-log.tsv`は`time-summary.md`の元データなので、記録リポジトリでgit管理する。
+hookが毎ターン追記するため、repo-syncゲートはこのファイルの変更だけを未コミットとして扱わない。
+既存のプロジェクトを`--update-project`で更新した場合は、利用者が`.flow-update-<version>/`の`.gitignore`をマージして
+`turn-log.tsv`の行を消し、`git add 03-worklog/turn-log.tsv`を1回実行する。
+
+guardのhookは、matcherで書き込み系のツールだけに絞っている（Kiro: `fs_write`、Claude Code: `Edit|Write|NotebookEdit`）。
+絞らないと、読み取りやコマンドの実行のたびにguardが起動する。
+Kiroの`fs_write`は、v2エンジンの`write`にもv3エンジンの`fs_write`・`str_replace`にも一致する（kiro-cli 2.36.0で実測）。
+
+宣言行の写し方はskills/migration-recordingに、集計のタイミングはskills/migration-sessionに、
+宣言の運用方法はskills/migration-troubleshootingに記載している。
 仕組みの詳細、注意点、セキュリティ方針は各スクリプトの冒頭コメントに記載している。
 
 ## ツール対応状況

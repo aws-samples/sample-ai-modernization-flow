@@ -277,7 +277,10 @@ gate_nonfunc() {
 gate_repo_sync() {
   echo "=== Gate 5: Repository Sync Check ==="
   local mig_dirty mig_ts found tree
-  mig_dirty="$(git status --short 2>/dev/null)"
+  # turn-log.tsv（追跡対象）は hook が毎ターン追記するため、commit した直後のターンの終了でもう変更になる。
+  # **追跡済みファイルの変更だけ**を外す（未追跡 `??` は外さない＝ add 漏れは FAIL のまま）。
+  # パスを固定で照合するため、リポジトリのルートからの相対パスを出す --porcelain を使う
+  mig_dirty="$(git status --porcelain 2>/dev/null | grep -vE '^[ M][ M] 03-worklog/turn-log\.tsv$' || true)"
   if [ -n "$mig_dirty" ]; then
     fail "records repository has uncommitted changes:"
     echo "$mig_dirty" | sed 's/^/      /'

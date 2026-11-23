@@ -13,11 +13,13 @@ description: Details of session start/end procedures. Restoring state when resum
    - **Verification Queue** (if there are unverified fixes, start with verification)
    - Repository sync status table (report if there are unpushed changes)
 2. Check recent work with `tail -80 03-worklog/worklog.md`
-3. Set up the test environment (`02-test/test-procedures.md` "Prerequisites".
+3. When `--turn-log` is enabled: run `./03-worklog/turn-report.sh --by-entry > 03-worklog/time-summary.md`, then
+   commit `time-summary.md` and `turn-log.tsv` (this settles the last turn of the previous session)
+4. Set up the test environment (`02-test/test-procedures.md` "Prerequisites".
    Daemons, environment variables, etc. are volatile, so this is needed every time)
-4. Confirm "nothing is broken" with `./verify.sh` before resuming work
-5. If there is an interrupted subtask, read that directory's plan.md / investigation.md and continue
-6. If the working tree is dirty, classify it before continuing: cross-check the session-context `This turn` declaration and working-tree ledger against
+5. Confirm "nothing is broken" with `./verify.sh` before resuming work
+6. If there is an interrupted subtask, read that directory's plan.md / investigation.md and continue
+7. If the working tree is dirty, classify it before continuing: cross-check the session-context `This turn` declaration and working-tree ledger against
    `git log`, and sort each change into diagnostic (revert) / candidate-fix (treat as unverified and
    re-verify). If there is no record at all, reconstruct intent from the diff and record it before proceeding
 
@@ -31,14 +33,17 @@ description: Details of session start/end procedures. Restoring state when resum
    - Current Status / Next Actions / resume procedure
    - Decision Queue / Verification Queue
    - Repository sync status table
-3. **migration (recording) repository**: commit until `git status` is clean
-4. **modernized tree**: commit verified changes
+3. When `--turn-log` is enabled: run `./03-worklog/turn-report.sh --by-entry > 03-worklog/time-summary.md`
+   (rebuilt in full and overwritten; never edit it by hand; it is committed in the next step)
+4. **migration (recording) repository**: commit until `git status` is clean
+5. **modernized tree**: commit verified changes
    (record unverified changes in the Verification Queue and set them aside)
-5. **If a remote is configured, push both repositories.**
+6. **If a remote is configured, push both repositories.**
    If no remote is configured, state this explicitly in session-context.md
-6. Finally, display `git log --oneline -1` and `git status --short` for both repositories and report their consistency
-   (run `./verify.sh repo-sync` to mechanically confirm both repositories have zero uncommitted changes)
-7. If there are unresolved items in the Decision Queue, state them explicitly in the end-of-session report
+7. Finally, display `git log --oneline -1` and `git status --short` for both repositories and report their consistency
+   (run `./verify.sh repo-sync` to mechanically confirm both repositories have zero uncommitted changes. Changes to
+   `turn-log.tsv`, which the hook keeps appending to, are excluded)
+8. If there are unresolved items in the Decision Queue, state them explicitly in the end-of-session report
 
 ## Repository Sync Status Table (within session-context.md)
 

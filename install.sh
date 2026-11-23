@@ -829,6 +829,12 @@ if [ "$TURN_LOG" -eq 1 ]; then
   cp "$HARNESS_DIR/tools/turn-log.sh"    "$TL_DIR/turn-log.sh"
   cp "$HARNESS_DIR/tools/turn-report.sh" "$TL_DIR/turn-report.sh"
   chmod +x "$TL_DIR/turn-log.sh" "$TL_DIR/turn-report.sh"
+  # turn-log.tsv is tracked (the source data of time-summary.md). Create it empty so the
+  # initial commit includes it; left to the first hook, it would sit untracked and repo-sync
+  # would fail. Never truncate an existing log, and never write through a symlink.
+  if [ ! -e "$TL_DIR/turn-log.tsv" ] && [ ! -L "$TL_DIR/turn-log.tsv" ]; then
+    ( umask 077 && : > "$TL_DIR/turn-log.tsv" )
+  fi
 
   TL_PYTHON_BIN="$(resolve_python || true)"
   if [ -z "$TL_PYTHON_BIN" ]; then
@@ -854,12 +860,15 @@ if [ "$TURN_LOG" -eq 1 ]; then
     cp "$HARNESS_DIR/tools/work-declaration-guard.sh" "$TL_DIR/work-declaration-guard.sh"
     chmod +x "$TL_DIR/work-declaration-guard.sh"
     stamp_python_bin "$TL_DIR/work-declaration-guard.sh" "$TL_PYTHON_BIN"
+    # Both tools match on the tool name, so the guard only starts for write tools -- without a
+    # matcher it would start (bash + python) on every read and shell call. Kiro's "fs_write"
+    # matches its write tools on both engines (v2: write; v3: fs_write / str_replace; measured
+    # on kiro-cli 2.36.0). The guard still filters the tool name itself, as a backstop.
+    # Bash / execute_bash is deliberately out of scope in both.
     KIRO_GUARD_HOOK=",
     \"preToolUse\": [
-      { \"command\": \"$(hook_cmd "${TL_DIR}/work-declaration-guard.sh")\", \"timeout_ms\": 5000 }
+      { \"matcher\": \"fs_write\", \"command\": \"$(hook_cmd "${TL_DIR}/work-declaration-guard.sh")\", \"timeout_ms\": 5000 }
     ]"
-    # Claude Code matches on the tool name; Kiro has no matcher and the guard filters
-    # the tool itself. Bash / execute_bash is deliberately out of scope in both.
     CC_GUARD_HOOK=",
     \"PreToolUse\": [ { \"matcher\": \"Edit|Write|NotebookEdit\", \"hooks\": [ { \"type\": \"command\", \"command\": \"$(hook_cmd "\${CLAUDE_PROJECT_DIR}/${RECORDS_REL}/03-worklog/work-declaration-guard.sh")\", \"timeout\": 5 } ] } ]"
     msg wg_installed
