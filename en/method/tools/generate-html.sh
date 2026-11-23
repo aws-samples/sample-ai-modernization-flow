@@ -4,7 +4,9 @@
 # Usage: ./generate-html.sh <input dir> <output dir>
 # Example: cd 00-analysis/<repo-id> && ../generate-html.sh ATXDocumentation ATXDocumentation_html
 #
-# Requires: pandoc (brew install pandoc / sudo dnf install pandoc) and python3 (sidebar generation)
+# Requires: pandoc (brew install pandoc / sudo dnf install pandoc / on Windows unpack the
+#           official zip onto PATH) and python3 (sidebar generation; on Windows the real
+#           interpreter is usually named `python`, so both names are probed)
 #
 # Notes:
 #   - Give the input and output directories as relative paths (absolute paths are unsupported)
@@ -67,6 +69,24 @@ else
   echo "Warning: could not download mermaid.min.js; falling back to the CDN (viewing then needs internet access)" >&2
 fi
 
+# Temporary directory used to hand the pandoc template over.
+# Do not use `--template=/dev/stdin`: the native Windows pandoc.exe cannot interpret the
+# MSYS /dev/stdin, looks for `templates\0.html` inside its data directory and dies with
+# exit 97 (Git Bash). A real file works on all three (macOS/Linux/Windows)
+TPL_DIR="$(mktemp -d 2>/dev/null || mktemp -d -t genhtml)" || { echo "Error: cannot create a temporary directory" >&2; exit 1; }
+trap 'rm -rf "$TPL_DIR"' EXIT
+TPL="$TPL_DIR/page.html"
+
+# Turn syntax highlighting off. Newer pandoc 3.x releases highlight ```mermaid as the
+# language `mermaid` and emit `<div class="sourceCode">… <pre class="sourceCode mermaid">`
+# instead of `<pre class="mermaid"><code>`, so neither the viewer JS nor a check that counts
+# the diagrams recognizes a single one. The flag name changed, so ask pandoc
+if pandoc --help 2>/dev/null | grep -q -- "--syntax-highlighting"; then
+  NOHL="--syntax-highlighting=none"   # pandoc 3.14+ (--no-highlight warns: deprecated)
+else
+  NOHL="--no-highlight"               # earlier
+fi
+
 # Convert every MD file to HTML
 cd "$SRC"
 find . -name "*.md" | while read f; do
@@ -84,7 +104,7 @@ find . -name "*.md" | while read f; do
     mermaidsrc="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"
   fi
 
-  pandoc "$f" -o "$outfile" --standalone --template=/dev/stdin <<TEMPLATE
+  cat > "$TPL" <<TEMPLATE
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -114,6 +134,7 @@ document.addEventListener('DOMContentLoaded', function () {
 </body>
 </html>
 TEMPLATE
+  pandoc "$f" -o "$outfile" --standalone "$NOHL" --template="$TPL"
 done
 cd ..
 
@@ -127,7 +148,27 @@ done
 # Build the sidebar by walking the .html files actually generated.
 # Because it is not a fixed list there are no dead links or orphan pages (it follows per-repository differences).
 # Each top-level directory gets a section name, and known files get a display name.
-python3 - "$DST" <<'PY'
+# Resolve python. Every candidate is actually executed before being trusted (on Windows
+# `python3` is usually the WindowsApps App Execution Alias stub: `command -v` finds it but
+# it does not run; the real interpreter is normally named `python`).
+# Same approach as resolve_python in install.sh
+_python_works() { "$1" -c '' >/dev/null 2>&1; }
+PYBIN=""
+for cand in /usr/bin/python3 /usr/local/bin/python3 /opt/homebrew/bin/python3; do
+  if [ -x "$cand" ] && _python_works "$cand"; then PYBIN="$cand"; break; fi
+done
+if [ -z "$PYBIN" ]; then
+  for cand in "$(command -v python3 2>/dev/null || true)" "$(command -v python 2>/dev/null || true)"; do
+    if [ -n "$cand" ] && _python_works "$cand"; then PYBIN="$cand"; break; fi
+  done
+fi
+[ -n "$PYBIN" ] || { echo "Error: no working python3/python found (required for sidebar generation)" >&2; exit 1; }
+
+# Pin stdout/stderr to UTF-8 for non-ASCII output (the Windows default is cp932/cp1252 and
+# raises UnicodeEncodeError; index.html itself is written with encoding="utf-8")
+export PYTHONIOENCODING="utf-8"
+
+"$PYBIN" - "$DST" <<'PY'
 import os, sys, html, re
 
 dst = sys.argv[1]
@@ -255,7 +296,9 @@ sidebar.querySelectorAll('a').forEach(a => a.addEventListener('click', function(
 </body>
 </html>
 '''
-with open(os.path.join(dst, "index.html"), "w", encoding="utf-8") as fh:
+# newline="\n": Windows text mode turns \n into \r\n, which does not match the other pages
+# pandoc writes (LF). Pin it to LF so the generated tree can be compared with diff
+with open(os.path.join(dst, "index.html"), "w", encoding="utf-8", newline="\n") as fh:
     fh.write(index)
 print(f"Sidebar entries: {len(pages)} / default: {default_page}")
 PY

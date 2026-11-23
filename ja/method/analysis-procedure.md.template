@@ -232,7 +232,7 @@ HOLD-6 である（数百 agent min の実費を捨てる操作であり、利�
    cd 00-analysis/<repo-id>
    ../generate-html.sh ATXDocumentation ATXDocumentation_html
    ```
-   - 依存: `pandoc`（`brew install pandoc` / `sudo dnf install pandoc`）と `python3`
+   - 依存: `pandoc`（`brew install pandoc` / `sudo dnf install pandoc` / Windows は公式の zip を展開して PATH に置く）と `python3`（Windows では `python` でもよい）
    - サイドバーは実ファイルのツリーから自動生成される（固定リストではないので dead link が出ない）
    - ``` mermaid ``` ブロックは図として描画される（`mermaid.min.js` をローカル同梱するのでオフライン可）。
      **ASCII アート図は図にならない** — 0a-4 の指示で mermaid を要求するのが根本対策
