@@ -3,7 +3,7 @@
 *-modernized/
 .DS_Store
 
-# ターン時刻の生ログ（install.sh --turn-log。hook が毎ターン追記する）。
-# **追跡下に置いてはならない**: repo-sync ゲートは未追跡ファイルも FAIL 扱いにするため、
-# セッション中ずっとゲートが落ちる。恒久記録は turn-report.sh --worklog で worklog へ貼った表である。
-03-worklog/turn-log.tsv
+# 03-worklog/turn-log.tsv（ターン時刻の生ログ）は**ここに書かない。追跡対象である。**
+# time-summary.md の一次データであり、失うと作り直せない。hook が毎ターン追記するので、
+# repo-sync ゲートはこのファイルの変更だけを未コミット扱いから外す。commit は
+# time-summary.md と同じく、セッションの開始時と終了時に行う（skills/migration-session）。

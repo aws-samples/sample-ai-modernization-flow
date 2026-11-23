@@ -4,21 +4,27 @@
 # =============================================================================
 #
 # A self-reported record cannot be detected when it is forgotten, so the times are taken by the hook.
-# The table is built by `turn-report.sh` (`--worklog` / `--list` / `--declare`). Capture and reporting
+# The table is built by `turn-report.sh` (`--by-entry` / `--list` / `--declare`). Capture and reporting
 # are split so that the path run every turn carries no unneeded code (a capture failure cannot write
 # to stdout, so its errors never surface).
 #
 # From the hook: receive the event JSON on stdin, append one line to the TSV and exit 0. Wired by
 #   install.sh --turn-log.
-#   Output: `time <TAB> raw event <TAB> session_id` appended to `03-worklog/turn-log.tsv`
-#   Supported: userPromptSubmit / stop (Kiro), UserPromptSubmit / Stop / StopFailure (Claude Code)
+#   Output: `time <TAB> raw event <TAB> session_id <TAB> kind` appended to `03-worklog/turn-log.tsv`
+#   Kind: only on prompt rows, `human` / `notify` (the text starts with `<task-notification>` = a
+#         turn started by a background task's completion notification). Reply rows get `-`.
+#         **Only the verdict is kept, never the text**
+#   Supported: userPromptSubmit / stop (Kiro v2), UserPromptSubmit / Stop (Kiro v3),
+#         UserPromptSubmit / Stop / StopFailure (Claude Code)
+#   turn-log.tsv is tracked in the records repository (the source data of time-summary.md).
+#   It is append-only and never rewritten
 #
 # Easy to break when editing:
 #   - **Write nothing to stdout.** Both tools inject the stdout of the start hook into the agent's context
 #   - **Do not capture the prompt text.** The times do not need it, and capturing it would leave API
 #     keys and the like in plain text
-#   - **Do not normalize event names.** The case of the raw value identifies the tool
-#     (`Stop` = Claude Code / `stop` = Kiro)
+#   - **Do not normalize event names.** Matching is case-insensitive (Kiro v2 uses lower case,
+#     v3 an initial capital)
 #   - `session_id` comes from the payload first, otherwise from the environment variable (Kiro's
 #     `--no-interactive` provides only the environment variable)
 #   - **Do not use externally supplied values in the file name** — that keeps sanitizing and
@@ -51,7 +57,7 @@ umask 077   # file mode 600. Removes the dependency on the caller's umask
 TS="$(date '+%Y-%m-%dT%H:%M:%S%z')"
 PAYLOAD="$(cat 2>/dev/null || true)"
 
-EVENT=""; SESSION=""; CWD=""
+EVENT=""; SESSION=""; CWD=""; KIND="-"
 if [ -n "$PY" ]; then
   # `session_id` comes **from the payload first, otherwise from the environment variable**.
   # Kiro's `--no-interactive` does not pass `session_id` in the payload, only in the environment
@@ -69,16 +75,24 @@ except Exception:
 raw = str(d.get("hook_event_name", ""))
 session = str(d.get("session_id", "") or "") or os.environ.get("KIRO_SESSION_ID", "")
 
+# Kind: decided for prompt rows only. **The text is used for the verdict and never output**
+# (only the presence of the key and the start of the text are inspected)
+kind = "-"
+if raw.lower() == "userpromptsubmit":
+    p = d.get("prompt")
+    kind = "notify" if isinstance(p, str) and p.lstrip().startswith("<task-notification>") else "human"
+
 def clean(s):
     # Strip control characters (C0 and DEL) in addition to tabs and newlines
     return "".join(ch for ch in str(s) if ch >= " " and ch != "\x7f")
 
-print("\t".join(clean(x) for x in (raw, session, d.get("cwd", ""))))
+print("\t".join(clean(x) for x in (raw, session, d.get("cwd", ""), kind)))
 ' 2>/dev/null || true)"
   if [ -n "$PARSED" ]; then
     EVENT="$(printf '%s' "$PARSED"   | cut -f1)"
     SESSION="$(printf '%s' "$PARSED" | cut -f2)"
     CWD="$(printf '%s' "$PARSED"     | cut -f3)"
+    KIND="$(printf '%s' "$PARSED"    | cut -f4)"
   fi
 fi
 
@@ -114,7 +128,7 @@ esac
 # Do not write if the target is a symbolic link (prevents swapping the target)
 if [ -L "$LOG_FILE" ]; then exit 0; fi
 
-printf '%s\t%s\t%s\n' "$TS" "$EVENT" "${SESSION:-no-session-id}" \
+printf '%s\t%s\t%s\t%s\n' "$TS" "$EVENT" "${SESSION:-no-session-id}" "${KIND:--}" \
   >> "$LOG_FILE" 2>/dev/null || true
 chmod 600 "$LOG_FILE" 2>/dev/null || true
 

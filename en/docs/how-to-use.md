@@ -246,9 +246,10 @@ In long migration work, session breaks, server restarts and multi-day work inevi
 - At start, the AI declares in one line what it will do that turn. Because the work is interrupted partway, the declaration is written at the point of starting
 - State is never left only in the uncommitted working tree. With WIP commits, diagnostic commits and markers, it is left on the git side too
 - If there is an unrecorded uncommitted change, `verify.sh repo-sync` returns FAIL
-- Every turn, the hook records the time the prompt was received and the time the reply was returned in `03-worklog/turn-log.tsv` in the records repository. The prompt text is not saved, and the file is not tracked by git
-- The AI pastes a table built from these records into `worklog.md`. Its columns are the prompt and reply times, the duration (AI processing time), the wait (human response time) and notes, followed by statistics for the duration and the wait. This table is the only permanent record
-- The wait is the wall-clock time from the previous reply to the next prompt. It does not match the time a person spent thinking
+- Every turn, the hook records the time the prompt was received and the time the reply was returned in `03-worklog/turn-log.tsv` in the records repository. The prompt text is not saved.
+- The AI copies the at-start declaration line into each entry of `worklog.md`. This associates the turn records with the entries.
+- At the start and end of an agent session, the AI summarizes the AI working time and the human time per entry into `03-worklog/time-summary.md` and commits it.
+- The human time is the wall-clock time from the previous reply to the next prompt. It does not match the time a person spent thinking.
 - In Kiro, nothing is recorded unless you launch it with `kiro-cli chat --agent migration`
 - Recording the turn time and enforcing the at-start declaration are on by default. To disable them, add `--no-turn-log` or `--no-work-guard` at install time ([../harness/README.md](../harness/README.md))
 

@@ -287,7 +287,11 @@ gate_nonfunc() {
 gate_repo_sync() {
   echo "=== Gate 5: Repository Sync Check ==="
   local mig_dirty mig_ts found tree
-  mig_dirty="$(git status --short 2>/dev/null)"
+  # turn-log.tsv (tracked) gets a row appended by the hook every turn, so it is modified again as
+  # soon as the turn that committed it ends. **Only changes to the tracked file** are left out
+  # (untracked `??` is not = a missing add still fails). The path is matched literally, so use
+  # --porcelain, which prints paths relative to the repository root
+  mig_dirty="$(git status --porcelain 2>/dev/null | grep -vE '^[ M][ M] 03-worklog/turn-log\.tsv$' || true)"
   if [ -n "$mig_dirty" ]; then
     fail "records repository has uncommitted changes:"
     echo "$mig_dirty" | sed 's/^/      /'

@@ -49,6 +49,8 @@ from installed user projects. `check-i18n.sh` enforces a 1:1 match of `CP-N` / `
   `./tools/test-verify-helpers.sh`.
 - All shell scripts must pass `bash -n`. `check-i18n.sh` covers the scripts under `ja/`
   and `en/`; check `install.sh` and `tools/*.sh` yourself.
+- Put scratch files under `.work/` (git-ignored). Test workspaces that simulate a user's
+  setup go outside the repository, or this file loads as parent instructions.
 
 ## Versioning
 

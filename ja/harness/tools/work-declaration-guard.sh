@@ -10,7 +10,8 @@
 #
 # hook から: `preToolUse`（Kiro）/ `PreToolUse`（Claude Code）に配線する（install.sh --work-guard）。
 # 判定: `session-context.md` の "In-progress Investigation" 節に `This turn (<T_prompt>)` があること。
-#   `T_prompt` = `turn-log.tsv` の**自セッションの**最後の `UserPromptSubmit`。
+#   `T_prompt` = `turn-log.tsv` の**自セッションの**最後の `UserPromptSubmit`（種別 notify の行は除く。
+#   完了通知のターンは直前の指示の続きであり、宣言し直させない。turn-report.sh --by-entry と同じ扱い）。
 #   宣言行は `turn-report.sh --declare` で生成できる。
 #
 # 素通しする条件（fail-open。guard が作業を不能にしてはならない）:
@@ -22,7 +23,10 @@
 #   - **mtime を見ない。** session-context は無関係な理由で頻繁に触るため素通りする
 #   - **`T_prompt` はセッションで絞る。** 絞らないと並行セッションの prompt を自分のものとして拾い、
 #     正しい宣言がブロックされる
-#   - **ツール名は `_`/`-` を除去して照合する**（Claude Code は `Edit`/`Write`、Kiro は `fs_write`）
+#   - **ツール名は `_`/`-` を除去して照合する**（Claude Code は `Edit`/`Write`、Kiro は v2 が `write`、
+#     v3 が `fs_write`/`str_replace`。実測: kiro-cli 2.36.0）
+#   - **hook 側の matcher で書き込み系だけに絞る**（Kiro: `fs_write`、Claude Code: `Edit|Write|NotebookEdit`）。
+#     絞らないと読み取りやコマンドのたびに起動する。下のツール名の照合は matcher を外されたときの保険
 #   - **警告モードを持たない。** exit 0 の stderr はエージェントに届かない（実測）。
 #     exit 2 は両ツールでツールを止め、メッセージが届く
 #   - **本スクリプトは読むだけである**（ファイルに書かない）。`cwd` はパス境界で比較する
@@ -98,9 +102,10 @@ esac
 
 # 素通し条件1: 変更系ツール以外（Bash / execute_bash は意図的に対象外）。
 # **大小無視 + `_`/`-` を除去して照合する** — Claude Code は `Edit`/`Write`/`NotebookEdit`、
-# Kiro は **`fs_write`**（アンダースコア付き）である。実測で気づいた差異なので正規化して吸収する。
+# Kiro は v2 が `write`、v3 が **`fs_write` / `str_replace`**（アンダースコア付き）である。
+# 実測で気づいた差異なので正規化して吸収する。
 case "$(printf '%s' "$TOOL" | tr 'A-Z' 'a-z' | tr -d '_-')" in
-  edit|write|notebookedit|multiedit|fswrite|fsreplace) : ;;
+  edit|write|notebookedit|multiedit|fswrite|fsreplace|strreplace) : ;;
   *) exit 0 ;;
 esac
 
@@ -120,7 +125,9 @@ scoped, any_last = "", ""
 try:
     for line in io.open(os.environ["TURN_LOG_PATH"], encoding="utf-8", errors="replace"):
         p = line.rstrip("\n").split("\t")
-        if len(p) >= 2 and p[1].strip().lower() == "userpromptsubmit":
+        # 完了通知で起動したターン（種別 notify）は直前の指示の続きなので、宣言の時刻にしない
+        if len(p) >= 2 and p[1].strip().lower() == "userpromptsubmit" \
+                and not (len(p) >= 4 and p[3].strip() == "notify"):
             any_last = p[0]
             if want and len(p) >= 3 and p[2] == want:
                 scoped = p[0]

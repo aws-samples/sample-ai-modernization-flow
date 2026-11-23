@@ -201,7 +201,7 @@ Whether a file is overwritten is decided solely by whether the user writes into 
 
 | Treatment | Target |
 |------|------|
-| Regenerated (overwritten) | `00-analysis/analysis-procedure.md`, `00-analysis/*.sh` (the Method tools), `setup-modernized.sh`, `03-worklog/templates/subtask-plan.md.template`, `docs/reference/` / `00-analysis/transform-config-cca-template.yaml` / `modernized-gitignore.template` (Playbook) |
+| Regenerated (overwritten) | `00-analysis/analysis-procedure.md`, `00-analysis/*.sh` (the Method tools), `setup-modernized.sh`, `03-worklog/turn-log.sh` / `turn-report.sh` / `work-declaration-guard.sh` (when `--turn-log` is enabled), `03-worklog/templates/subtask-plan.md.template`, `docs/reference/` / `00-analysis/transform-config-cca-template.yaml` / `modernized-gitignore.template` (Playbook) |
 | Preserved (not changed) | `verify.sh`, `docs/decisions/decisions.md`, `docs/knowledge/*.md`, `01-plan/*.md`, `00-analysis/repository-inventory.md`, `analysis-runs.md`, `analysis-appendix.md`, `02-test/*.md`, `03-worklog/session-context.md`, `worklog.md`, `.gitignore` |
 
 Among the preserved files, those that differ from the current template get the new template placed at the
@@ -242,8 +242,8 @@ or `--no-turn-log` (do not even record) to `install.sh`.
 
 | What is installed | Role |
 |--------------|------|
-| `03-worklog/turn-log.sh` | Called from the hook every turn; appends time, event, and session_id to `turn-log.tsv` in the same directory. The prompt body is not saved |
-| `03-worklog/turn-report.sh` | Outputs the table to paste into the worklog with `--worklog`, the list of records with `--list`, and the declaration line with `--declare` |
+| `03-worklog/turn-log.sh` | Called from the hook every turn; appends time, event, session_id and kind to `turn-log.tsv` in the same directory. The kind is a human prompt (`human`) or a background task's completion notification (`notify`). The prompt body is not saved |
+| `03-worklog/turn-report.sh` | Outputs the time summary per worklog entry with `--by-entry`, the list of records with `--list`, and the declaration line with `--declare` |
 | `03-worklog/work-declaration-guard.sh` | Not installed when `--no-work-guard` is specified. If there is no declaration, it stops the execution of change-type tools (`Bash` is out of scope) |
 
 The python path is resolved at install time and written directly into the three scripts. The hooks run
@@ -264,12 +264,28 @@ cd <workspace root> && kiro-cli chat --agent migration
 ./<project>-migration-<date>/03-worklog/turn-report.sh --list   # confirm it is being recorded
 ```
 
-The only records that remain permanently are the table pasted into the worklog and the declaration. The
-raw log is excluded from git management.
-The table columns are Prompt (received), Reply (returned), Duration (AI), Wait (human) and Notes. After the table come the count, median, minimum, maximum and total for both the duration and the wait.
-A wait longer than one hour (`TURN_LOG_IDLE_LIMIT`) is treated as time away and excluded from the wait statistics.
-The timing for transcribing into the worklog is in skills/migration-recording, and how the declaration is
-operated is in skills/migration-troubleshooting.
+From recording to summary:
+
+1. The hook (`turn-log.sh`) appends the time each prompt was received and the time each reply was returned to `turn-log.tsv`
+2. The AI copies the turn's declaration line `- **This turn (<prompt time>):**` into each worklog entry
+3. At session start and session end, the AI runs `turn-report.sh --by-entry`, overwrites `03-worklog/time-summary.md` with the output, and commits it
+
+`turn-report.sh --by-entry` assigns to an entry the turns whose prompt time matches the time in its declaration line,
+and outputs, per entry, the AI working time (prompt -> reply) and the human time (previous reply -> next prompt).
+A turn started by a completion notification is treated as a continuation of the previous prompt and added to the AI time.
+A gap longer than one hour (`TURN_LOG_IDLE_LIMIT`) is treated as time away and left out of the human time.
+
+`turn-log.tsv` is the source data of `time-summary.md`, so it is tracked by git in the records repository.
+The hook appends to it every turn, so the repo-sync gate does not treat changes to this file as uncommitted.
+After updating an existing project with `--update-project`, the user merges the `.gitignore` under `.flow-update-<version>/`
+to remove the `turn-log.tsv` line, and runs `git add 03-worklog/turn-log.tsv` once.
+
+The guard hook is narrowed to write tools with a matcher (Kiro: `fs_write`, Claude Code: `Edit|Write|NotebookEdit`).
+Without it, the guard would start on every read and every command.
+Kiro's `fs_write` matches `write` on the v2 engine and `fs_write` / `str_replace` on the v3 engine (measured on kiro-cli 2.36.0).
+
+How to copy the declaration line is in skills/migration-recording, the timing of the summary is in skills/migration-session,
+and how the declaration is operated is in skills/migration-troubleshooting.
 The details of the mechanism, caveats, and the security policy are in the header comments of each script.
 
 ## Tool Support Status
