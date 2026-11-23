@@ -149,9 +149,9 @@ Details: **skills/migration-troubleshooting**
 
 Always do the following upon completion of each unit of work (investigation, fix, test). Do not declare
 "complete" until you have done so:
-1. Append to `03-worklog/worklog.md` (chronological order, append at the end). After appending,
-   **run `./03-worklog/turn-report.sh --worklog` and paste the output into that entry** (the raw log is git-ignored).
-   **Writing the table by hand or transcribing it is forbidden. The numbers must be the command output as-is**
+1. Append to `03-worklog/worklog.md`. Copy into the entry the declaration line of each turn that did the work
+   (the `--declare` output written in session-context) **as-is, at the start of a line**. **Never type the time by
+   hand. Do not write a time table** (skills/migration-recording)
 2. Update `03-worklog/session-context.md` (Current Status / Next Actions / Verification Queue / Decision Queue)
 3. Upon completion of a Phase/Step, a subtask, or a Tier 2 (HOLD) response, perform an LL/CP/DP inventory review (state explicitly if none apply)
 
@@ -200,8 +200,9 @@ follow the procedure in **skills/migration-subtask**. Place all working files in
 
 Execute this at session end without waiting for instruction. **Committing/pushing only one of the repositories is incomplete**:
 1. Confirm the worklog entry → 2. Update session-context (including the repository sync status table)
-3. Commit the records repository until clean → 4. Commit verified changes to the modernized tree
-5. If a remote exists, push both → 6. Report `git log --oneline -1` and `git status --short` for both repositories
+3. `./03-worklog/turn-report.sh --by-entry > 03-worklog/time-summary.md` (when `--turn-log` is enabled) → 4. Commit the records repository until clean
+5. Commit verified changes to the modernized tree → 6. If a remote exists, push both
+7. Report `git log --oneline -1` and `git status --short` for both repositories
 Details: **skills/migration-session**
 
 ## Off-limits / Project-Specific Information
